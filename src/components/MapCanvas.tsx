@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import maplibregl from 'maplibre-gl'
 import {
   findNearestRadarSiteFromList,
@@ -73,6 +73,24 @@ type ProjectedTrackLabel = {
   kind: 'origin' | 'eta' | 'heading'
 }
 
+type ViewportSnapshot = {
+  west: number
+  south: number
+  east: number
+  north: number
+  mercatorWest: number
+  mercatorSouth: number
+  mercatorEast: number
+  mercatorNorth: number
+  width: number
+  height: number
+}
+
+type BufferedRasterFrame = {
+  url: string
+  viewport: ViewportSnapshot
+}
+
 const lightBasemapSourceId = 'light-basemap'
 const lightBasemapLayerId = 'light-basemap-layer'
 const darkBasemapSourceId = 'dark-basemap'
@@ -144,18 +162,10 @@ export function MapCanvas({
   onStormTrackOriginSet,
   onStormTrackEndSet,
 }: MapCanvasProps) {
-  const [mapViewport, setMapViewport] = useState<{
-    west: number
-    south: number
-    east: number
-    north: number
-    mercatorWest: number
-    mercatorSouth: number
-    mercatorEast: number
-    mercatorNorth: number
-    width: number
-    height: number
-  } | null>(null)
+  const [liveViewport, setLiveViewport] = useState<ViewportSnapshot | null>(null)
+  const [requestViewport, setRequestViewport] = useState<ViewportSnapshot | null>(
+    null,
+  )
   const [projectedTrackLabels, setProjectedTrackLabels] = useState<
     ProjectedTrackLabel[]
   >([])
@@ -418,38 +428,60 @@ export function MapCanvas({
       .setLngLat(center)
       .addTo(map)
 
-    const syncViewport = () => {
+    let viewportAnimationFrame: number | null = null
+
+    const syncLiveViewport = () => {
       if (!map.isStyleLoaded()) {
         return
       }
 
-      const bounds = map.getBounds()
-      const container = map.getContainer()
-      setMapViewport({
-        west: bounds.getWest(),
-        south: bounds.getSouth(),
-        east: bounds.getEast(),
-        north: bounds.getNorth(),
-        mercatorWest: lngLatToWebMercator(bounds.getWest(), bounds.getSouth())[0],
-        mercatorSouth: lngLatToWebMercator(bounds.getWest(), bounds.getSouth())[1],
-        mercatorEast: lngLatToWebMercator(bounds.getEast(), bounds.getNorth())[0],
-        mercatorNorth: lngLatToWebMercator(bounds.getEast(), bounds.getNorth())[1],
-        width: Math.max(Math.round(container.clientWidth), 256),
-        height: Math.max(Math.round(container.clientHeight), 256),
+      const snapshot = readViewportSnapshot(map)
+
+      if (snapshot) {
+        setLiveViewport(snapshot)
+      }
+    }
+
+    const scheduleLiveViewportSync = () => {
+      if (viewportAnimationFrame !== null) {
+        return
+      }
+
+      viewportAnimationFrame = window.requestAnimationFrame(() => {
+        viewportAnimationFrame = null
+        syncLiveViewport()
       })
     }
 
-    map.on('load', syncViewport)
-    map.on('moveend', syncViewport)
-    map.on('resize', syncViewport)
-    window.requestAnimationFrame(syncViewport)
+    const syncRequestViewport = () => {
+      if (!map.isStyleLoaded()) {
+        return
+      }
+
+      const snapshot = readViewportSnapshot(map)
+
+      if (snapshot) {
+        setLiveViewport(snapshot)
+        setRequestViewport(snapshot)
+      }
+    }
+
+    map.on('load', syncRequestViewport)
+    map.on('move', scheduleLiveViewportSync)
+    map.on('moveend', syncRequestViewport)
+    map.on('resize', syncRequestViewport)
+    window.requestAnimationFrame(syncRequestViewport)
 
     mapRef.current = map
 
     return () => {
-      map.off('load', syncViewport)
-      map.off('moveend', syncViewport)
-      map.off('resize', syncViewport)
+      if (viewportAnimationFrame !== null) {
+        window.cancelAnimationFrame(viewportAnimationFrame)
+      }
+      map.off('load', syncRequestViewport)
+      map.off('move', scheduleLiveViewportSync)
+      map.off('moveend', syncRequestViewport)
+      map.off('resize', syncRequestViewport)
       radarPopupRef.current?.remove()
       radarPopupRef.current = null
       alertPopupRef.current?.remove()
@@ -458,6 +490,8 @@ export function MapCanvas({
       spcPopupRef.current = null
       markerRef.current?.remove()
       markerRef.current = null
+      setLiveViewport(null)
+      setRequestViewport(null)
       setProjectedTrackLabels([])
       clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
       map.remove()
@@ -1715,22 +1749,22 @@ export function MapCanvas({
   }, [stormTrackEnd, stormTrackOrigin, stormTrackSpeedMph, trackToolEnabled, stormTrackResetKey])
 
   const regionalRadarOverlayUrl =
-    mapViewport && activeLayer === 'Radar' && radarView === 'regional'
+    requestViewport && activeLayer === 'Radar' && radarView === 'regional'
       ? buildRegionalRadarImageUrl(
           radarProduct === 'composite' ? 'composite' : 'base',
           {
-            west: mapViewport.mercatorWest,
-            south: mapViewport.mercatorSouth,
-            east: mapViewport.mercatorEast,
-            north: mapViewport.mercatorNorth,
-            width: mapViewport.width,
-            height: mapViewport.height,
+            west: requestViewport.mercatorWest,
+            south: requestViewport.mercatorSouth,
+            east: requestViewport.mercatorEast,
+            north: requestViewport.mercatorNorth,
+            width: requestViewport.width,
+            height: requestViewport.height,
             time: selectedRegionalRadarTime,
           },
         )
       : null
   const localRadarOverlayUrl =
-    mapViewport &&
+    requestViewport &&
     activeLayer === 'Radar' &&
     radarView === 'local' &&
     nearestRadarSite &&
@@ -1739,44 +1773,65 @@ export function MapCanvas({
           nearestRadarSite,
           localRadarDefinition,
           selectedLocalRadarTime,
-          west: mapViewport.mercatorWest,
-          south: mapViewport.mercatorSouth,
-          east: mapViewport.mercatorEast,
-          north: mapViewport.mercatorNorth,
-          width: mapViewport.width,
-          height: mapViewport.height,
+          west: requestViewport.mercatorWest,
+          south: requestViewport.mercatorSouth,
+          east: requestViewport.mercatorEast,
+          north: requestViewport.mercatorNorth,
+          width: requestViewport.width,
+          height: requestViewport.height,
         })
       : null
   const satelliteOverlayUrl =
-    mapViewport && activeLayer === 'Satellite'
+    requestViewport && activeLayer === 'Satellite'
       ? buildSatelliteImageUrl(satelliteLayer, {
-          west: mapViewport.west,
-          south: mapViewport.south,
-          east: mapViewport.east,
-          north: mapViewport.north,
-          width: mapViewport.width,
-          height: mapViewport.height,
+          west: requestViewport.west,
+          south: requestViewport.south,
+          east: requestViewport.east,
+          north: requestViewport.north,
+          width: requestViewport.width,
+          height: requestViewport.height,
           time: selectedSatelliteTime,
         })
       : null
+  const {
+    activeFrame: activeSatelliteFrame,
+    pendingFrame: pendingSatelliteFrame,
+    promotePendingFrame: promotePendingSatelliteFrame,
+  } = useBufferedRasterFrame(satelliteOverlayUrl, requestViewport)
+  const {
+    activeFrame: activeRegionalRadarFrame,
+    pendingFrame: pendingRegionalRadarFrame,
+    promotePendingFrame: promotePendingRegionalRadarFrame,
+  } = useBufferedRasterFrame(regionalRadarOverlayUrl, requestViewport)
+  const {
+    activeFrame: activeLocalRadarFrame,
+    pendingFrame: pendingLocalRadarFrame,
+    promotePendingFrame: promotePendingLocalRadarFrame,
+  } = useBufferedRasterFrame(localRadarOverlayUrl, requestViewport)
   const projectedSpcFeatures =
-    mapRef.current && mapViewport && activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk'
+    mapRef.current &&
+    liveViewport &&
+    activeLayer === 'Forecast' &&
+    activeForecastOverlay === 'SPC Storm Risk'
       ? projectPolygonFeatures(mapRef.current, spcFeatures)
       : []
   const projectedWinterFeatures =
-    mapRef.current && mapViewport && activeLayer === 'Forecast' && activeForecastOverlay === 'Winter'
+    mapRef.current &&
+    liveViewport &&
+    activeLayer === 'Forecast' &&
+    activeForecastOverlay === 'Winter'
       ? projectPolygonFeatures(mapRef.current, winterFeatures)
       : []
   const projectedLocalStormReports =
-    mapRef.current && mapViewport && activeLayer === 'Radar' && showSpotterReports
+    mapRef.current && liveViewport && activeLayer === 'Radar' && showSpotterReports
       ? projectPointFeatures(mapRef.current, localStormReports, (feature) => feature.coordinates)
       : []
   const projectedCameraFeeds =
-    mapRef.current && mapViewport && activeLayer === 'Radar' && showCameras
+    mapRef.current && liveViewport && activeLayer === 'Radar' && showCameras
       ? projectPointFeatures(mapRef.current, cameraFeeds, (feed) => feed.coordinates)
       : []
   const projectedSpotterNetworkFeatures =
-    mapRef.current && mapViewport && activeLayer === 'Radar' && showChasers
+    mapRef.current && liveViewport && activeLayer === 'Radar' && showChasers
       ? projectPointFeatures(
           mapRef.current,
           spotterNetworkFeatures,
@@ -1788,36 +1843,51 @@ export function MapCanvas({
     <div className="map-surface">
       <div ref={containerRef} className="map-canvas" />
       <div className="map-raster-stack" aria-hidden="true">
-        {satelliteOverlayUrl ? (
+        {renderBufferedRasterFrame(
+          mapRef.current,
+          activeSatelliteFrame ?? (pendingSatelliteFrame && !activeSatelliteFrame ? pendingSatelliteFrame : null),
+          satelliteOpacity,
+        )}
+        {pendingSatelliteFrame && activeSatelliteFrame ? (
           <img
-            key={satelliteOverlayUrl}
-            className="map-raster-image"
-            src={satelliteOverlayUrl}
+            key={`${pendingSatelliteFrame.url}-preload`}
+            className="map-raster-preload"
+            src={pendingSatelliteFrame.url}
             alt=""
-            style={{ opacity: satelliteOpacity }}
+            onLoad={promotePendingSatelliteFrame}
           />
         ) : null}
-        {regionalRadarOverlayUrl ? (
+        {renderBufferedRasterFrame(
+          mapRef.current,
+          activeRegionalRadarFrame ?? (pendingRegionalRadarFrame && !activeRegionalRadarFrame ? pendingRegionalRadarFrame : null),
+          radarOpacity,
+        )}
+        {pendingRegionalRadarFrame && activeRegionalRadarFrame ? (
           <img
-            key={regionalRadarOverlayUrl}
-            className="map-raster-image"
-            src={regionalRadarOverlayUrl}
+            key={`${pendingRegionalRadarFrame.url}-preload`}
+            className="map-raster-preload"
+            src={pendingRegionalRadarFrame.url}
             alt=""
-            style={{ opacity: radarOpacity }}
+            onLoad={promotePendingRegionalRadarFrame}
           />
         ) : null}
-        {localRadarOverlayUrl ? (
+        {renderBufferedRasterFrame(
+          mapRef.current,
+          activeLocalRadarFrame ?? (pendingLocalRadarFrame && !activeLocalRadarFrame ? pendingLocalRadarFrame : null),
+          radarOpacity,
+        )}
+        {pendingLocalRadarFrame && activeLocalRadarFrame ? (
           <img
-            key={localRadarOverlayUrl}
-            className="map-raster-image"
-            src={localRadarOverlayUrl}
+            key={`${pendingLocalRadarFrame.url}-preload`}
+            className="map-raster-preload"
+            src={pendingLocalRadarFrame.url}
             alt=""
-            style={{ opacity: radarOpacity }}
+            onLoad={promotePendingLocalRadarFrame}
           />
         ) : null}
       </div>
       {projectedSpcFeatures.length > 0 ? (
-        <svg className="map-vector-overlay" viewBox={`0 0 ${mapViewport?.width ?? 0} ${mapViewport?.height ?? 0}`}>
+        <svg className="map-vector-overlay" viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}>
           {projectedSpcFeatures.map(({ feature, path }) => (
             <path
               key={feature.id}
@@ -1878,7 +1948,7 @@ export function MapCanvas({
         </svg>
       ) : null}
       {projectedWinterFeatures.length > 0 ? (
-        <svg className="map-vector-overlay" viewBox={`0 0 ${mapViewport?.width ?? 0} ${mapViewport?.height ?? 0}`}>
+        <svg className="map-vector-overlay" viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}>
           {projectedWinterFeatures.map(({ feature, path }) => (
             <path
               key={feature.id}
@@ -2098,6 +2168,74 @@ function buildAlertSelectionFromMapFeature(
         : []),
     ],
   }
+}
+
+function useBufferedRasterFrame(
+  targetUrl: string | null,
+  viewport: ViewportSnapshot | null,
+) {
+  const [activeFrame, setActiveFrame] = useState<BufferedRasterFrame | null>(null)
+  const [pendingFrame, setPendingFrame] = useState<BufferedRasterFrame | null>(null)
+
+  useEffect(() => {
+    if (!targetUrl || !viewport) {
+      setActiveFrame(null)
+      setPendingFrame(null)
+      return
+    }
+
+    if (activeFrame?.url === targetUrl || pendingFrame?.url === targetUrl) {
+      return
+    }
+
+    const nextFrame: BufferedRasterFrame = {
+      url: targetUrl,
+      viewport,
+    }
+
+    if (!activeFrame) {
+      setActiveFrame(nextFrame)
+      setPendingFrame(null)
+      return
+    }
+
+    setPendingFrame(nextFrame)
+  }, [activeFrame, pendingFrame, targetUrl, viewport])
+
+  function promotePendingFrame() {
+    if (!pendingFrame) {
+      return
+    }
+
+    setActiveFrame(pendingFrame)
+    setPendingFrame(null)
+  }
+
+  return {
+    activeFrame,
+    pendingFrame,
+    promotePendingFrame,
+  }
+}
+
+function renderBufferedRasterFrame(
+  map: maplibregl.Map | null,
+  frame: BufferedRasterFrame | null,
+  opacity: number,
+) {
+  if (!map || !frame) {
+    return null
+  }
+
+  return (
+    <img
+      key={frame.url}
+      className="map-raster-image"
+      src={frame.url}
+      alt=""
+      style={buildRasterFrameStyle(map, frame.viewport, opacity)}
+    />
+  )
 }
 
 function buildLocalStormReportSelection(
@@ -2711,6 +2849,56 @@ function hasSourceSafe(map: maplibregl.Map, sourceId: string) {
     return Boolean(map.getSource(sourceId))
   } catch {
     return false
+  }
+}
+
+function readViewportSnapshot(map: maplibregl.Map): ViewportSnapshot | null {
+  try {
+    const bounds = map.getBounds()
+    const container = map.getContainer()
+
+    return {
+      west: bounds.getWest(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      north: bounds.getNorth(),
+      mercatorWest: lngLatToWebMercator(bounds.getWest(), bounds.getSouth())[0],
+      mercatorSouth: lngLatToWebMercator(bounds.getWest(), bounds.getSouth())[1],
+      mercatorEast: lngLatToWebMercator(bounds.getEast(), bounds.getNorth())[0],
+      mercatorNorth: lngLatToWebMercator(bounds.getEast(), bounds.getNorth())[1],
+      width: Math.max(Math.round(container.clientWidth), 256),
+      height: Math.max(Math.round(container.clientHeight), 256),
+    }
+  } catch {
+    return null
+  }
+}
+
+function buildRasterFrameStyle(
+  map: maplibregl.Map,
+  viewport: ViewportSnapshot,
+  opacity: number,
+): CSSProperties {
+  try {
+    const northWest = map.project([viewport.west, viewport.north])
+    const southEast = map.project([viewport.east, viewport.south])
+    const left = Math.min(northWest.x, southEast.x)
+    const top = Math.min(northWest.y, southEast.y)
+    const width = Math.max(Math.abs(southEast.x - northWest.x), 1)
+    const height = Math.max(Math.abs(southEast.y - northWest.y), 1)
+
+    return {
+      left,
+      top,
+      width,
+      height,
+      opacity,
+    }
+  } catch {
+    return {
+      inset: 0,
+      opacity,
+    }
   }
 }
 

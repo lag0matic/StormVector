@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import './App.css'
 import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
@@ -863,6 +863,19 @@ function App() {
     }
   }
 
+  function commitOpacityValue<K extends keyof typeof defaultLayerOpacity>(
+    key: K,
+    value: number,
+  ) {
+    const normalizedValue = clampPercentage(value, layerOpacity[key])
+    setLayerOpacity((current) =>
+      normalizeLayerOpacity({
+        ...current,
+        [key]: normalizedValue,
+      }),
+    )
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -1385,98 +1398,38 @@ function App() {
                   <div className="popover-section">
                     <p className="card-label">Layer opacity</p>
                     <div className="slider-group">
-                      <label className="slider-row">
-                        <span>Radar</span>
-                        <strong>{layerOpacity.radar}%</strong>
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <OpacitySlider
+                        label="Radar"
                         value={layerOpacity.radar}
-                        onChange={(event) =>
-                          setLayerOpacity((current) => ({
-                            ...current,
-                            radar: Number(event.target.value),
-                          }))
-                        }
+                        onCommit={(value) => commitOpacityValue('radar', value)}
                       />
                     </div>
                     <div className="slider-group">
-                      <label className="slider-row">
-                        <span>Satellite</span>
-                        <strong>{layerOpacity.satellite}%</strong>
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <OpacitySlider
+                        label="Satellite"
                         value={layerOpacity.satellite}
-                        onChange={(event) =>
-                          setLayerOpacity((current) => ({
-                            ...current,
-                            satellite: Number(event.target.value),
-                          }))
-                        }
+                        onCommit={(value) => commitOpacityValue('satellite', value)}
                       />
                     </div>
                     <div className="slider-group">
-                      <label className="slider-row">
-                        <span>Warnings</span>
-                        <strong>{layerOpacity.warnings}%</strong>
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <OpacitySlider
+                        label="Warnings"
                         value={layerOpacity.warnings}
-                        onChange={(event) =>
-                          setLayerOpacity((current) => ({
-                            ...current,
-                            warnings: Number(event.target.value),
-                          }))
-                        }
+                        onCommit={(value) => commitOpacityValue('warnings', value)}
                       />
                     </div>
                     <div className="slider-group">
-                      <label className="slider-row">
-                        <span>Watches</span>
-                        <strong>{layerOpacity.watches}%</strong>
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <OpacitySlider
+                        label="Watches"
                         value={layerOpacity.watches}
-                        onChange={(event) =>
-                          setLayerOpacity((current) => ({
-                            ...current,
-                            watches: Number(event.target.value),
-                          }))
-                        }
+                        onCommit={(value) => commitOpacityValue('watches', value)}
                       />
                     </div>
                     <div className="slider-group">
-                      <label className="slider-row">
-                        <span>Forecast Polygons</span>
-                        <strong>{layerOpacity.polygons}%</strong>
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <OpacitySlider
+                        label="Forecast Polygons"
                         value={layerOpacity.polygons}
-                        onChange={(event) =>
-                          setLayerOpacity((current) => ({
-                            ...current,
-                            polygons: Number(event.target.value),
-                          }))
-                        }
+                        onCommit={(value) => commitOpacityValue('polygons', value)}
                       />
                     </div>
                   </div>
@@ -2857,4 +2810,40 @@ async function playAudibleAlertTone(tone: 'warning' | 'watch') {
     void audioContext.close()
   }
 }
+
+const OpacitySlider = memo(function OpacitySlider({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string
+  value: number
+  onCommit: (value: number) => void
+}) {
+  const [draftValue, setDraftValue] = useState(value)
+
+  useEffect(() => {
+    setDraftValue(value)
+  }, [value])
+
+  return (
+    <>
+      <label className="slider-row">
+        <span>{label}</span>
+        <strong>{draftValue}%</strong>
+      </label>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        value={draftValue}
+        onChange={(event) => setDraftValue(Number(event.target.value))}
+        onMouseUp={(event) => onCommit(Number(event.currentTarget.value))}
+        onTouchEnd={(event) => onCommit(Number(event.currentTarget.value))}
+        onKeyUp={(event) => onCommit(Number(event.currentTarget.value))}
+      />
+    </>
+  )
+})
 
