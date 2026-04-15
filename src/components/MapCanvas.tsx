@@ -1858,6 +1858,32 @@ export function MapCanvas({
         )
       : []
 
+  const forwardOverlayWheelToMap = (event: React.WheelEvent<SVGSVGElement>) => {
+    event.preventDefault()
+
+    const canvas = mapRef.current?.getCanvas()
+
+    if (!canvas) {
+      return
+    }
+
+    canvas.dispatchEvent(
+      new WheelEvent('wheel', {
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  }
+
   return (
     <div className="map-surface">
       <div ref={containerRef} className="map-canvas" />
@@ -1906,7 +1932,11 @@ export function MapCanvas({
         ) : null}
       </div>
       {projectedSpcFeatures.length > 0 ? (
-        <svg className="map-vector-overlay" viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}>
+        <svg
+          className="map-vector-overlay"
+          viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}
+          onWheel={forwardOverlayWheelToMap}
+        >
           {projectedSpcFeatures.map(({ feature, path }) => (
             <path
               key={feature.id}
@@ -1967,7 +1997,11 @@ export function MapCanvas({
         </svg>
       ) : null}
       {projectedWinterFeatures.length > 0 ? (
-        <svg className="map-vector-overlay" viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}>
+        <svg
+          className="map-vector-overlay"
+          viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}
+          onWheel={forwardOverlayWheelToMap}
+        >
           {projectedWinterFeatures.map(({ feature, path }) => (
             <path
               key={feature.id}
