@@ -1,46 +1,34 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchRadarProductDefinition,
-  type LocalRadarProduct,
-  type RadarProductDefinition,
-  type RadarSite,
-} from '../services/radar'
+  fetchLightningTimeline,
+  type LightningLayerId,
+  type LightningTimelineDefinition,
+} from '../services/lightning'
 
-const LOCAL_RADAR_POLL_MS = 120_000
+const LIGHTNING_POLL_MS = 60_000
 
-type LocalRadarTimelineState = {
-  definition: RadarProductDefinition | null
+type LightningTimelineState = {
+  definition: LightningTimelineDefinition | null
   frames: string[]
   loading: boolean
   error: string | null
 }
 
-export function useLocalRadarTimeline(
-  site: RadarSite | null,
-  product: LocalRadarProduct,
-): LocalRadarTimelineState {
-  const [state, setState] = useState<LocalRadarTimelineState>({
+export function useLightningTimeline(
+  layerId: LightningLayerId,
+): LightningTimelineState {
+  const [state, setState] = useState<LightningTimelineState>({
     definition: null,
     frames: [],
-    loading: false,
+    loading: true,
     error: null,
   })
 
   useEffect(() => {
-    if (!site) {
-      setState({
-        definition: null,
-        frames: [],
-        loading: false,
-        error: null,
-      })
-      return
-    }
-
     const controller = new AbortController()
     let intervalId: number | null = null
 
-    const loadDefinition = async (forceRefresh = false) => {
+    const loadTimeline = async (forceRefresh = false) => {
       if (!forceRefresh) {
         setState((current) => ({
           ...current,
@@ -50,14 +38,9 @@ export function useLocalRadarTimeline(
       }
 
       try {
-        const definition = await fetchRadarProductDefinition(
-          site,
-          product,
-          controller.signal,
-          {
-            forceRefresh,
-          },
-        )
+        const definition = await fetchLightningTimeline(layerId, controller.signal, {
+          forceRefresh,
+        })
 
         if (controller.signal.aborted) {
           return
@@ -65,7 +48,7 @@ export function useLocalRadarTimeline(
 
         setState({
           definition,
-          frames: definition?.frames ?? [],
+          frames: definition.frames,
           loading: false,
           error: null,
         })
@@ -79,15 +62,15 @@ export function useLocalRadarTimeline(
             forceRefresh && current.definition ? current.definition : null,
           frames: forceRefresh && current.frames.length > 0 ? current.frames : [],
           loading: false,
-          error: error instanceof Error ? error.message : 'Local radar refresh failed.',
+          error: error instanceof Error ? error.message : 'Lightning refresh failed.',
         }))
       }
     }
 
-    void loadDefinition(false)
+    void loadTimeline(false)
     intervalId = window.setInterval(() => {
-      void loadDefinition(true)
-    }, LOCAL_RADAR_POLL_MS)
+      void loadTimeline(true)
+    }, LIGHTNING_POLL_MS)
 
     return () => {
       controller.abort()
@@ -95,7 +78,7 @@ export function useLocalRadarTimeline(
         window.clearInterval(intervalId)
       }
     }
-  }, [product, site])
+  }, [layerId])
 
   return state
 }

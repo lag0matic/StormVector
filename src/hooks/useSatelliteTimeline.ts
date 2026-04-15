@@ -5,6 +5,8 @@ import {
   type SatelliteTimelineDefinition,
 } from '../services/satellite'
 
+const SATELLITE_POLL_MS = 180_000
+
 type SatelliteTimelineState = {
   definition: SatelliteTimelineDefinition | null
   frames: string[]
@@ -24,15 +26,22 @@ export function useSatelliteTimeline(
 
   useEffect(() => {
     const controller = new AbortController()
+    let intervalId: number | null = null
 
-    setState((current) => ({
-      ...current,
-      loading: true,
-      error: null,
-    }))
+    const loadTimeline = async (forceRefresh = false) => {
+      if (!forceRefresh) {
+        setState((current) => ({
+          ...current,
+          loading: true,
+          error: null,
+        }))
+      }
 
-    fetchSatelliteTimeline(layerId, controller.signal)
-      .then((definition) => {
+      try {
+        const definition = await fetchSatelliteTimeline(layerId, controller.signal, {
+          forceRefresh,
+        })
+
         if (controller.signal.aborted) {
           return
         }
@@ -43,21 +52,32 @@ export function useSatelliteTimeline(
           loading: false,
           error: null,
         })
-      })
-      .catch((error: Error) => {
+      } catch (error) {
         if (controller.signal.aborted) {
           return
         }
 
-        setState({
-          definition: null,
-          frames: [],
+        setState((current) => ({
+          definition:
+            forceRefresh && current.definition ? current.definition : null,
+          frames: forceRefresh && current.frames.length > 0 ? current.frames : [],
           loading: false,
-          error: error.message,
-        })
-      })
+          error: error instanceof Error ? error.message : 'Satellite refresh failed.',
+        }))
+      }
+    }
 
-    return () => controller.abort()
+    void loadTimeline(false)
+    intervalId = window.setInterval(() => {
+      void loadTimeline(true)
+    }, SATELLITE_POLL_MS)
+
+    return () => {
+      controller.abort()
+      if (intervalId !== null) {
+        window.clearInterval(intervalId)
+      }
+    }
   }, [layerId])
 
   return state

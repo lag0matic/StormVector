@@ -37,6 +37,10 @@ export type SatelliteTimelineDefinition = {
 
 const satelliteMetadataCache = new Map<SatelliteLayerId, SatelliteTimelineDefinition>()
 
+type FetchOptions = {
+  forceRefresh?: boolean
+}
+
 export function buildSatelliteImageUrl(
   layerId: SatelliteLayerId,
   {
@@ -70,14 +74,18 @@ export function buildSatelliteImageUrl(
 export async function fetchSatelliteTimeline(
   layerId: SatelliteLayerId,
   signal?: AbortSignal,
+  options?: FetchOptions,
 ): Promise<SatelliteTimelineDefinition> {
-  if (satelliteMetadataCache.has(layerId)) {
+  if (!options?.forceRefresh && satelliteMetadataCache.has(layerId)) {
     return satelliteMetadataCache.get(layerId) as SatelliteTimelineDefinition
   }
 
   const response = await fetch(
     `${nowCoastSatelliteServiceUrl}?service=WMS&version=1.3.0&request=GetCapabilities`,
-    { signal },
+    {
+      signal,
+      cache: options?.forceRefresh ? 'no-store' : 'default',
+    },
   )
 
   if (!response.ok) {

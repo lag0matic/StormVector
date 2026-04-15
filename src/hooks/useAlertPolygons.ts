@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+import {
+  fetchCountyGeometries,
+  geometryCollectionToMultiPolygon,
+} from '../services/counties'
 import { buildActiveAlertsUrl, fetchJson } from '../services/nws'
 import type { AlertFeature } from '../types/weather'
 
@@ -16,6 +20,10 @@ type NwsAlertsGeoJsonResponse = {
       severity?: string
       urgency?: string
       areaDesc?: string
+      geocode?: {
+        UGC?: string[]
+        SAME?: string[]
+      }
     }
   }>
 }
@@ -52,7 +60,7 @@ export function useAlertPolygons(): AlertPolygonState {
         }
 
         setState({
-          features: normalizeAlertFeatures(response),
+          features: await normalizeAlertFeatures(response, controller.signal),
           loading: false,
           error: null,
         })
@@ -90,17 +98,19 @@ export function useAlertPolygons(): AlertPolygonState {
   return state
 }
 
-function normalizeAlertFeatures(
+async function normalizeAlertFeatures(
   response: NwsAlertsGeoJsonResponse,
-): AlertFeature[] {
-  return (response.features ?? [])
-    .filter((feature): feature is NonNullable<NwsAlertsGeoJsonResponse['features']>[number] => {
-      return (
-        feature.geometry?.type === 'Polygon' ||
-        feature.geometry?.type === 'MultiPolygon'
-      )
-    })
-    .map((feature, index) => ({
+  signal?: AbortSignal,
+): Promise<AlertFeature[]> {
+  const resolvedFeatures = await Promise.all(
+    (response.features ?? []).map(async (feature, index) => {
+      const geometry = await resolveAlertGeometry(feature, signal)
+
+      if (!geometry) {
+        return null
+      }
+
+      return {
       ...resolveAlertColors(feature.properties?.event),
       id: feature.id ?? `alert-${index}`,
       alertType: classifyAlertType(feature.properties?.event),
@@ -116,8 +126,60 @@ function normalizeAlertFeatures(
       severity: feature.properties?.severity ?? 'Unknown',
       urgency: feature.properties?.urgency ?? 'Unknown',
       areaDescription: feature.properties?.areaDesc ?? 'Area description unavailable',
-      geometry: feature.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
-    }))
+        geometry,
+      }
+    }),
+  )
+
+  return resolvedFeatures.filter((feature): feature is AlertFeature => feature !== null)
+}
+
+async function resolveAlertGeometry(
+  feature: NonNullable<NwsAlertsGeoJsonResponse['features']>[number],
+  signal?: AbortSignal,
+): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
+  if (feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon') {
+    return feature.geometry
+  }
+
+  const countyFipsCodes = extractCountyFipsCodes(feature.properties?.geocode)
+
+  if (countyFipsCodes.length === 0) {
+    return null
+  }
+
+  const countyGeometries = await fetchCountyGeometries(countyFipsCodes, signal)
+  return geometryCollectionToMultiPolygon(countyGeometries)
+}
+
+function extractCountyFipsCodes(
+  geocode?: {
+    UGC?: string[]
+    SAME?: string[]
+  },
+) {
+  const sameCodes = (geocode?.SAME ?? [])
+    .map((code) => code.replace(/\D/g, '').slice(-5))
+    .filter((code) => /^\d{5}$/.test(code))
+
+  if (sameCodes.length > 0) {
+    return [...new Set(sameCodes)]
+  }
+
+  return [...new Set(
+    (geocode?.UGC ?? [])
+      .map((code) => {
+        const match = code.match(/^[A-Z]{2}C(\d{3})$/)
+        const stateCode = stateAbbreviationToFips[code.slice(0, 2)]
+
+        if (!match || !stateCode) {
+          return null
+        }
+
+        return `${stateCode}${match[1]}`
+      })
+      .filter((code): code is string => code !== null),
+  )]
 }
 
 function resolveAlertColors(eventName?: string) {
@@ -216,6 +278,61 @@ const nwsHazardColors: Record<string, string> = {
   'Hazardous Weather Outlook': '#EEE8AA',
   'Hydrologic Outlook': '#90EE90',
   'Short Term Forecast': '#98FB98',
+}
+
+const stateAbbreviationToFips: Record<string, string> = {
+  AL: '01',
+  AK: '02',
+  AZ: '04',
+  AR: '05',
+  CA: '06',
+  CO: '08',
+  CT: '09',
+  DE: '10',
+  FL: '12',
+  GA: '13',
+  HI: '15',
+  ID: '16',
+  IL: '17',
+  IN: '18',
+  IA: '19',
+  KS: '20',
+  KY: '21',
+  LA: '22',
+  ME: '23',
+  MD: '24',
+  MA: '25',
+  MI: '26',
+  MN: '27',
+  MS: '28',
+  MO: '29',
+  MT: '30',
+  NE: '31',
+  NV: '32',
+  NH: '33',
+  NJ: '34',
+  NM: '35',
+  NY: '36',
+  NC: '37',
+  ND: '38',
+  OH: '39',
+  OK: '40',
+  OR: '41',
+  PA: '42',
+  RI: '44',
+  SC: '45',
+  SD: '46',
+  TN: '47',
+  TX: '48',
+  UT: '49',
+  VT: '50',
+  VA: '51',
+  WA: '53',
+  WV: '54',
+  WI: '55',
+  WY: '56',
+  DC: '11',
+  PR: '72',
 }
 
 function deriveOutlineColor(hexColor: string) {

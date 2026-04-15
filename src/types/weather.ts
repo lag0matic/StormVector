@@ -27,6 +27,43 @@ export type AlertFeature = {
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon
 }
 
+export type LocalStormReportFeature = {
+  id: string
+  eventType: string
+  reportCategory:
+    | 'tornado'
+    | 'hail'
+    | 'wind'
+    | 'flood'
+    | 'winter'
+    | 'rain'
+    | 'other'
+  city: string
+  county: string
+  state: string
+  source: string
+  remark: string
+  magnitude: string
+  qualifier: string
+  valid: string
+  ageMinutes: number | null
+  fillColor: string
+  strokeColor: string
+  coordinates: [number, number]
+}
+
+export type SpotterNetworkFeature = {
+  id: string
+  label: string
+  platform: string
+  timestamp: string
+  heading: string
+  note: string
+  pageUrl?: string
+  embedUrl?: string
+  coordinates: [number, number]
+}
+
 export type SpcOutlookFeature = {
   id: string
   category: string
@@ -50,12 +87,23 @@ export type WinterOutlookFeature = {
 }
 
 export type HazardSelection = {
-  source: 'alerts' | 'spc' | 'winter'
+  source: 'alerts' | 'spc' | 'winter' | 'lsr' | 'spotter'
   title: string
   subtitle: string
   summary: string
   body?: string
   detailLines: string[]
+  pageUrl?: string
+  embedUrl?: string
+}
+
+export type CameraSelection = {
+  title: string
+  provider: string
+  summary: string
+  pageUrl?: string
+  imageUrl?: string
+  embedUrl?: string
 }
 
 export type ServiceCard = {

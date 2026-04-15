@@ -17,13 +17,31 @@ type NominatimMatch = {
   lat?: string
   lon?: string
 }
+type NominatimReverseMatch = {
+  display_name?: string
+  address?: {
+    city?: string
+    town?: string
+    village?: string
+    hamlet?: string
+    municipality?: string
+    county?: string
+    state?: string
+    state_code?: string
+  }
+  lat?: string
+  lon?: string
+}
 
 export type GeocodeResult = {
   label: string
   coordinates: [number, number]
 }
 
+const reversePlaceCache = new Map<string, GeocodeResult | null>()
+
 const CENSUS_BENCHMARK = 'Public_AR_Current'
+const reverseGeocodeTimeoutMs = 2200
 
 export function geocodeLocation(query: string): Promise<GeocodeResult> {
   const trimmedQuery = query.trim()
@@ -107,6 +125,61 @@ async function fetchPlaceGeocode(query: string): Promise<GeocodeResult> {
   }
 }
 
+export async function reverseGeocodePlace(
+  coordinates: [number, number],
+): Promise<GeocodeResult | null> {
+  const cacheKey = `${coordinates[0].toFixed(3)},${coordinates[1].toFixed(3)}`
+  const cached = reversePlaceCache.get(cacheKey)
+
+  if (cached !== undefined) {
+    return cached
+  }
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), reverseGeocodeTimeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&addressdetails=1&lat=${coordinates[1]}&lon=${coordinates[0]}`,
+      {
+        headers: {
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      },
+    )
+  } catch {
+    reversePlaceCache.set(cacheKey, null)
+    return null
+  } finally {
+    window.clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    reversePlaceCache.set(cacheKey, null)
+    return null
+  }
+
+  const match = (await response.json()) as NominatimReverseMatch
+  const label = simplifyReversePlaceLabel(match)
+  const latitude = Number(match.lat)
+  const longitude = Number(match.lon)
+
+  if (!label || Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    reversePlaceCache.set(cacheKey, null)
+    return null
+  }
+
+  const result = {
+    label,
+    coordinates: [longitude, latitude] as [number, number],
+  }
+  reversePlaceCache.set(cacheKey, result)
+  return result
+}
+
 function simplifyPlaceLabel(displayName: string) {
   const parts = displayName.split(',').map((value) => value.trim())
 
@@ -119,4 +192,38 @@ function simplifyPlaceLabel(displayName: string) {
   }
 
   return parts.slice(0, 2).join(', ')
+}
+
+function simplifyReversePlaceLabel(match: NominatimReverseMatch) {
+  const placeName =
+    match.address?.city ??
+    match.address?.town ??
+    match.address?.village ??
+    match.address?.hamlet ??
+    match.address?.municipality ??
+    match.address?.county
+
+  if (!placeName) {
+    return null
+  }
+
+  const state =
+    match.address?.state_code?.toUpperCase() ??
+    match.address?.state ??
+    extractStateFromDisplayName(match.display_name)
+
+  if (!state) {
+    return placeName
+  }
+
+  return `${placeName}, ${state === 'Indiana' ? 'IN' : state}`
+}
+
+function extractStateFromDisplayName(displayName?: string) {
+  if (!displayName) {
+    return null
+  }
+
+  const parts = displayName.split(',').map((value) => value.trim())
+  return parts.find((part) => part.length === 2 || part === 'Indiana') ?? null
 }

@@ -4,6 +4,8 @@ import {
   type RegionalRadarProduct,
 } from '../services/radar'
 
+const REGIONAL_RADAR_POLL_MS = 120_000
+
 type RegionalRadarTimelineState = {
   frames: string[]
   loading: boolean
@@ -21,15 +23,22 @@ export function useRegionalRadarTimeline(
 
   useEffect(() => {
     const controller = new AbortController()
+    let intervalId: number | null = null
 
-    setState((current) => ({
-      ...current,
-      loading: true,
-      error: null,
-    }))
+    const loadFrames = async (forceRefresh = false) => {
+      if (!forceRefresh) {
+        setState((current) => ({
+          ...current,
+          loading: true,
+          error: null,
+        }))
+      }
 
-    fetchRegionalRadarTimeline(product, controller.signal)
-      .then((frames) => {
+      try {
+        const frames = await fetchRegionalRadarTimeline(product, controller.signal, {
+          forceRefresh,
+        })
+
         if (controller.signal.aborted) {
           return
         }
@@ -39,20 +48,30 @@ export function useRegionalRadarTimeline(
           loading: false,
           error: null,
         })
-      })
-      .catch((error: Error) => {
+      } catch (error) {
         if (controller.signal.aborted) {
           return
         }
 
-        setState({
-          frames: [],
+        setState((current) => ({
+          frames: forceRefresh && current.frames.length > 0 ? current.frames : [],
           loading: false,
-          error: error.message,
-        })
-      })
+          error: error instanceof Error ? error.message : 'Regional radar refresh failed.',
+        }))
+      }
+    }
 
-    return () => controller.abort()
+    void loadFrames(false)
+    intervalId = window.setInterval(() => {
+      void loadFrames(true)
+    }, REGIONAL_RADAR_POLL_MS)
+
+    return () => {
+      controller.abort()
+      if (intervalId !== null) {
+        window.clearInterval(intervalId)
+      }
+    }
   }, [product])
 
   return state

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
+import { useCameraFeeds } from './hooks/useCameraFeeds'
+import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
 import { useLocationWeather } from './hooks/useLocationWeather'
 import { useNearestRadarSite } from './hooks/useNearestRadarSite'
@@ -9,13 +11,21 @@ import { useRadarSites } from './hooks/useRadarSites'
 import { useRegionalRadarTimeline } from './hooks/useRegionalRadarTimeline'
 import { useSatelliteTimeline } from './hooks/useSatelliteTimeline'
 import { useSpcOutlookPolygons } from './hooks/useSpcOutlookPolygons'
+import { useSpotterNetworkStreamers } from './hooks/useSpotterNetworkStreamers'
+import { useStormTrackPlaces } from './hooks/useStormTrackPlaces'
 import { useWinterOutlookPolygons } from './hooks/useWinterOutlookPolygons'
 import { geocodeLocation } from './services/geocode'
+import type { CameraFeedInput } from './services/cameras'
 import {
   defaultSatelliteLayers,
   type SatelliteLayerId,
 } from './services/satellite'
-import type { AlertFeature, HazardSelection } from './types/weather'
+import type {
+  AlertFeature,
+  CameraSelection,
+  HazardSelection,
+  LocalStormReportFeature,
+} from './types/weather'
 
 const primaryLayers = ['Radar', 'Satellite', 'Forecast'] as const
 const forecastOverlays = ['None', 'SPC Storm Risk', 'Winter'] as const
@@ -46,6 +56,7 @@ const playbackSpeeds = [
 ] as const
 const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
+const defaultLocationLabel = 'Indianapolis, IN'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -68,17 +79,48 @@ type AlertTypeFilters = {
   advisory: boolean
   statement: boolean
 }
+type AudibleAlertSettings = {
+  warning: boolean
+  watch: boolean
+  target: 'selected' | 'home'
+  radiusMiles: 25 | 50 | 70 | 100
+}
+type ReportTypeFilters = Record<
+  LocalStormReportFeature['reportCategory'],
+  boolean
+>
+type CameraStateFilters = Record<string, boolean>
+type StormTrackArrival = {
+  label: string
+  etaLabel: string
+  distanceMiles: number
+}
+type SidePanelTab = 'forecast' | 'hazards'
 type ThemeMode = 'light' | 'dark'
+type CustomCameraDraft = {
+  name: string
+  latitude: string
+  longitude: string
+  pageUrl: string
+  imageUrl: string
+  embedUrl: string
+}
 const storageKeys = {
   homeLocation: 'radar-desktop:home-location',
   favoriteLocations: 'radar-desktop:favorite-locations',
+  customCameraFeeds: 'radar-desktop:custom-camera-feeds',
   layerOpacity: 'radar-desktop:layer-opacity',
   alertTypeFilters: 'radar-desktop:alert-type-filters',
+  cameraStateFilters: 'radar-desktop:camera-state-filters',
+  reportTypeFilters: 'radar-desktop:report-type-filters',
+  audibleAlertSettings: 'radar-desktop:audible-alert-settings',
   themeMode: 'radar-desktop:theme-mode',
 }
 const defaultLayerOpacity = {
   radar: 78,
   satellite: 78,
+  warnings: 30,
+  watches: 14,
   polygons: 24,
 }
 const defaultAlertTypeFilters: AlertTypeFilters = {
@@ -86,6 +128,21 @@ const defaultAlertTypeFilters: AlertTypeFilters = {
   watch: true,
   advisory: true,
   statement: true,
+}
+const defaultReportTypeFilters: ReportTypeFilters = {
+  tornado: true,
+  hail: true,
+  wind: true,
+  flood: true,
+  winter: true,
+  rain: true,
+  other: true,
+}
+const defaultAudibleAlertSettings: AudibleAlertSettings = {
+  warning: true,
+  watch: false,
+  target: 'selected',
+  radiusMiles: 70,
 }
 
 function App() {
@@ -98,12 +155,32 @@ function App() {
   const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>(() =>
     readStoredJson<SavedLocation[]>(storageKeys.favoriteLocations, []),
   )
+  const [customCameraFeeds, setCustomCameraFeeds] = useState<CameraFeedInput[]>(() =>
+    readStoredJson<CameraFeedInput[]>(storageKeys.customCameraFeeds, []),
+  )
   const [layerOpacity, setLayerOpacity] = useState(() =>
-    readStoredJson(storageKeys.layerOpacity, defaultLayerOpacity),
+    normalizeLayerOpacity(
+      readStoredJson(storageKeys.layerOpacity, defaultLayerOpacity),
+    ),
   )
   const [alertTypeFilters, setAlertTypeFilters] = useState<AlertTypeFilters>(() =>
     readStoredJson(storageKeys.alertTypeFilters, defaultAlertTypeFilters),
   )
+  const [cameraStateFilters, setCameraStateFilters] = useState<CameraStateFilters>(() =>
+    readStoredJson(storageKeys.cameraStateFilters, {}),
+  )
+  const [reportTypeFilters, setReportTypeFilters] = useState<ReportTypeFilters>(() =>
+    normalizeReportTypeFilters(
+      readStoredJson(storageKeys.reportTypeFilters, defaultReportTypeFilters),
+    ),
+  )
+  const [audibleAlertSettings, setAudibleAlertSettings] =
+    useState<AudibleAlertSettings>(() =>
+      readStoredJson(
+        storageKeys.audibleAlertSettings,
+        defaultAudibleAlertSettings,
+      ),
+    )
   const [activeLayer, setActiveLayer] =
     useState<(typeof primaryLayers)[number]>('Radar')
   const [radarProduct, setRadarProduct] =
@@ -119,13 +196,16 @@ function App() {
   const [followLatestRegionalFrame, setFollowLatestRegionalFrame] = useState(true)
   const [selectedRadarSiteId, setSelectedRadarSiteId] = useState<string | null>(null)
   const [selectedCoordinates, setSelectedCoordinates] =
-    useState<[number, number]>(defaultCoordinates)
+    useState<[number, number]>(homeLocation?.coordinates ?? defaultCoordinates)
   const [shouldRecenterMap, setShouldRecenterMap] = useState(true)
   const [satelliteLayer, setSatelliteLayer] =
     useState<SatelliteLayerId>('infrared')
   const [selectedSatelliteFrameIndex, setSelectedSatelliteFrameIndex] = useState(0)
   const [satellitePlaybackRunning, setSatellitePlaybackRunning] = useState(false)
   const [followLatestSatelliteFrame, setFollowLatestSatelliteFrame] = useState(true)
+  const [showCameras, setShowCameras] = useState(false)
+  const [showSpotterReports, setShowSpotterReports] = useState(false)
+  const [showChasers, setShowChasers] = useState(false)
   const [playbackWindowMinutes, setPlaybackWindowMinutes] = useState<30 | 60 | 120>(30)
   const [playbackSpeed, setPlaybackSpeed] =
     useState<(typeof playbackSpeeds)[number]['id']>('normal')
@@ -136,14 +216,33 @@ function App() {
   const [selectedWinterProduct, setSelectedWinterProduct] =
     useState<(typeof winterProducts)[number]['id']>('snowfall')
   const [selectedHazard, setSelectedHazard] = useState<HazardSelection | null>(null)
+  const [selectedCamera, setSelectedCamera] = useState<CameraSelection | null>(null)
+  const [customCameraDraft, setCustomCameraDraft] = useState<CustomCameraDraft>({
+    name: '',
+    latitude: '',
+    longitude: '',
+    pageUrl: '',
+    imageUrl: '',
+    embedUrl: '',
+  })
   const [selectedLocalRadarFrameIndex, setSelectedLocalRadarFrameIndex] = useState(0)
   const [localPlaybackRunning, setLocalPlaybackRunning] = useState(false)
   const [followLatestFrame, setFollowLatestFrame] = useState(true)
-  const [searchText, setSearchText] = useState('Indianapolis, IN')
+  const [searchText, setSearchText] = useState(
+    homeLocation?.label ?? defaultLocationLabel,
+  )
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [showLocationMenu, setShowLocationMenu] = useState(false)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>('forecast')
+  const [trackToolEnabled, setTrackToolEnabled] = useState(false)
+  const [stormTrackOrigin, setStormTrackOrigin] = useState<[number, number] | null>(null)
+  const [stormTrackEnd, setStormTrackEnd] = useState<[number, number] | null>(null)
+  const [stormTrackSpeedMph, setStormTrackSpeedMph] = useState(30)
+  const [stormTrackResetKey, setStormTrackResetKey] = useState(0)
+  const seenAudibleAlertsRef = useRef<Set<string>>(new Set())
+  const audibleAlertScopeRef = useRef<string | null>(null)
   const { data: weather, error, source } =
     useLocationWeather(selectedCoordinates)
   const {
@@ -167,7 +266,20 @@ function App() {
   )
   const {
     features: alertFeatures,
+    loading: alertFeaturesLoading,
   } = useAlertPolygons()
+  const {
+    features: localStormReports,
+    loading: localStormReportsLoading,
+  } = useLocalStormReports(showSpotterReports)
+  const {
+    feeds: cameraFeeds,
+    loading: cameraFeedsLoading,
+  } = useCameraFeeds(showCameras, customCameraFeeds)
+  const {
+    features: spotterNetworkFeatures,
+    loading: spotterNetworkLoading,
+  } = useSpotterNetworkStreamers(showChasers)
   const {
     features: spcFeatures,
   } = useSpcOutlookPolygons(selectedSpcDay)
@@ -201,6 +313,12 @@ function App() {
     satelliteFrames,
     playbackWindowMinutes,
   )
+  const latestRegionalRadarFrame =
+    activeRegionalRadarFrames[activeRegionalRadarFrames.length - 1] ?? null
+  const latestLocalRadarFrame =
+    activeLocalRadarFrames[activeLocalRadarFrames.length - 1] ?? null
+  const latestSatelliteFrame =
+    activeSatelliteFrames[activeSatelliteFrames.length - 1] ?? null
   const selectedRegionalRadarTime =
     radarView === 'regional' && activeRegionalRadarFrames.length > 0
       ? activeRegionalRadarFrames[
@@ -250,11 +368,68 @@ function App() {
   const visibleAlertFeatures = alertFeatures.filter(
     (feature) => alertTypeFilters[feature.alertType],
   )
+  const availableCameraStates = Array.from(
+    new Set(
+      cameraFeeds
+        .map((feed) => feed.state)
+        .filter((state): state is string => Boolean(state)),
+    ),
+  ).sort()
+  const normalizedCameraStateFilters = normalizeCameraStateFilters(
+    availableCameraStates,
+    cameraStateFilters,
+  )
+  const visibleCameraFeeds = cameraFeeds.filter((feed) =>
+    isCameraVisibleForState(feed.state, normalizedCameraStateFilters),
+  )
+  const recentLocalStormReports = localStormReports
+    .filter((feature) => feature.ageMinutes === null || feature.ageMinutes <= 180)
+    .filter((feature) => reportTypeFilters[feature.reportCategory])
   const nearbyAlerts = getNearbyAlerts(visibleAlertFeatures, selectedCoordinates, 70)
+  const nearbyReports = getNearbyReports(recentLocalStormReports, selectedCoordinates, 70)
+  const audibleAlertCoordinates =
+    audibleAlertSettings.target === 'home' && homeLocation
+      ? homeLocation.coordinates
+      : selectedCoordinates
+  const audibleAlertLocationLabel =
+    audibleAlertSettings.target === 'home'
+      ? homeLocation?.label ?? 'Selected point'
+      : weather.location.name
+  const audibleNearbyAlerts = getNearbyAlerts(
+    alertFeatures,
+    audibleAlertCoordinates,
+    audibleAlertSettings.radiusMiles,
+  ).filter(({ alert }) =>
+    alert.alertType === 'warning'
+      ? audibleAlertSettings.warning
+      : alert.alertType === 'watch'
+        ? audibleAlertSettings.watch
+        : false,
+  )
   const currentSavedLocation = {
     label: weather.location.name,
     coordinates: selectedCoordinates,
   } satisfies SavedLocation
+  const stormTrackDistanceMiles =
+    stormTrackOrigin && stormTrackEnd
+      ? distanceBetweenMiles(stormTrackOrigin, stormTrackEnd)
+      : 0
+  const stormTrackTravelMinutes =
+    stormTrackDistanceMiles > 0 && stormTrackSpeedMph > 0
+      ? (stormTrackDistanceMiles / stormTrackSpeedMph) * 60
+      : 0
+  const {
+    places: stormTrackPlaces,
+    loading: stormTrackPlacesLoading,
+  } = useStormTrackPlaces(
+    trackToolEnabled,
+    stormTrackOrigin,
+    stormTrackEnd,
+  )
+  const stormTrackArrivals = buildStormTrackArrivals(
+    stormTrackPlaces,
+    stormTrackSpeedMph,
+  )
   const viewingLabel =
     activeLayer === 'Radar'
       ? activeRadarProducts.find((product) => product.id === radarProduct)?.label ?? 'Radar'
@@ -294,7 +469,19 @@ function App() {
           : nearestRadarLoading
             ? 'Resolving site...'
             : nearestRadarError ?? null
-        : `${visibleAlertFeatures.length} alerts visible`
+        : showCameras
+          ? cameraFeedsLoading
+            ? 'Loading cameras...'
+            : `${visibleCameraFeeds.length} cameras`
+        : showChasers
+          ? spotterNetworkLoading
+            ? 'Loading chasers...'
+            : `${spotterNetworkFeatures.length} chasers`
+        : showSpotterReports
+          ? localStormReportsLoading
+            ? 'Loading recent reports...'
+            : `${recentLocalStormReports.length} recent reports`
+          : `${visibleAlertFeatures.length} alerts visible`
       : activeLayer === 'Satellite'
         ? `${visibleAlertFeatures.length} alerts visible`
         : activeForecastOverlay === 'SPC Storm Risk'
@@ -324,6 +511,13 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem(
+      storageKeys.customCameraFeeds,
+      JSON.stringify(customCameraFeeds),
+    )
+  }, [customCameraFeeds])
+
+  useEffect(() => {
+    window.localStorage.setItem(
       storageKeys.layerOpacity,
       JSON.stringify(layerOpacity),
     )
@@ -337,13 +531,82 @@ function App() {
   }, [alertTypeFilters])
 
   useEffect(() => {
+    window.localStorage.setItem(
+      storageKeys.cameraStateFilters,
+      JSON.stringify(cameraStateFilters),
+    )
+  }, [cameraStateFilters])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      storageKeys.reportTypeFilters,
+      JSON.stringify(reportTypeFilters),
+    )
+  }, [reportTypeFilters])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      storageKeys.audibleAlertSettings,
+      JSON.stringify(audibleAlertSettings),
+    )
+  }, [audibleAlertSettings])
+
+  useEffect(() => {
+    if (alertFeaturesLoading) {
+      return
+    }
+
+    const scopeKey = JSON.stringify({
+      target: audibleAlertSettings.target,
+      radiusMiles: audibleAlertSettings.radiusMiles,
+      warning: audibleAlertSettings.warning,
+      watch: audibleAlertSettings.watch,
+      coordinates: audibleAlertCoordinates.map((value) => Number(value.toFixed(3))),
+    })
+    const currentAlertIds = new Set(audibleNearbyAlerts.map(({ alert }) => alert.id))
+
+    if (audibleAlertScopeRef.current !== scopeKey) {
+      audibleAlertScopeRef.current = scopeKey
+      seenAudibleAlertsRef.current = currentAlertIds
+      return
+    }
+
+    const newAlerts = audibleNearbyAlerts.filter(
+      ({ alert }) => !seenAudibleAlertsRef.current.has(alert.id),
+    )
+
+    currentAlertIds.forEach((id) => seenAudibleAlertsRef.current.add(id))
+
+    if (newAlerts.length === 0) {
+      return
+    }
+
+    const tone = newAlerts.some(({ alert }) => alert.alertType === 'warning')
+      ? 'warning'
+      : 'watch'
+    void playAudibleAlertTone(tone)
+  }, [
+    alertFeaturesLoading,
+    audibleAlertCoordinates,
+    audibleAlertSettings,
+    audibleNearbyAlerts,
+  ])
+
+  useEffect(() => {
     if (activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk') {
       const primarySpc = [...spcFeatures].sort(
         (left, right) => getSpcRank(right.category) - getSpcRank(left.category),
       )[0]
 
-      setSelectedHazard(
-        primarySpc
+      setSelectedHazard((current) => {
+        if (
+          current?.source === 'spc' &&
+          current.title.startsWith(`SPC Day ${selectedSpcDay} `)
+        ) {
+          return current
+        }
+
+        return primarySpc
           ? {
               source: 'spc',
               title: `SPC Day ${selectedSpcDay} ${primarySpc.category}`,
@@ -360,8 +623,8 @@ function App() {
               subtitle: 'Storm Prediction Center categorical outlook',
               summary: 'Click an SPC outlook polygon on the map to inspect it here.',
               detailLines: [`Loaded polygons: ${spcFeatures.length}`],
-            },
-      )
+            }
+      })
       return
     }
 
@@ -370,8 +633,15 @@ function App() {
         (left, right) => getWinterRank(right.outlook) - getWinterRank(left.outlook),
       )[0]
 
-      setSelectedHazard(
-        primaryWinter
+      setSelectedHazard((current) => {
+        if (
+          current?.source === 'winter' &&
+          current.title.startsWith(`WPC Day ${selectedWinterDay} `)
+        ) {
+          return current
+        }
+
+        return primaryWinter
           ? {
               source: 'winter',
               title: `WPC Day ${selectedWinterDay} ${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'}`,
@@ -388,8 +658,8 @@ function App() {
               subtitle: 'WPC Winter Storm Outlook',
               summary: 'Click a winter outlook polygon on the map to inspect it here.',
               detailLines: [`Loaded polygons: ${winterFeatures.length}`],
-            },
-      )
+            }
+      })
       return
     }
     setSelectedHazard((current) =>
@@ -423,11 +693,16 @@ function App() {
     if (
       radarView === 'regional' &&
       followLatestRegionalFrame &&
-      activeRegionalRadarFrames.length > 0
+      latestRegionalRadarFrame
     ) {
       setSelectedRegionalRadarFrameIndex(activeRegionalRadarFrames.length - 1)
     }
-  }, [activeRegionalRadarFrames.length, followLatestRegionalFrame, radarView])
+  }, [
+    activeRegionalRadarFrames.length,
+    followLatestRegionalFrame,
+    latestRegionalRadarFrame,
+    radarView,
+  ])
 
   useEffect(() => {
     if (
@@ -471,11 +746,16 @@ function App() {
     if (
       radarView === 'local' &&
       followLatestFrame &&
-      activeLocalRadarFrames.length > 0
+      latestLocalRadarFrame
     ) {
       setSelectedLocalRadarFrameIndex(activeLocalRadarFrames.length - 1)
     }
-  }, [activeLocalRadarFrames.length, followLatestFrame, radarView])
+  }, [
+    activeLocalRadarFrames.length,
+    followLatestFrame,
+    latestLocalRadarFrame,
+    radarView,
+  ])
 
   useEffect(() => {
     if (
@@ -513,11 +793,16 @@ function App() {
   useEffect(() => {
     if (
       followLatestSatelliteFrame &&
-      activeSatelliteFrames.length > 0
+      latestSatelliteFrame
     ) {
       setSelectedSatelliteFrameIndex(activeSatelliteFrames.length - 1)
     }
-  }, [activeSatelliteFrames.length, followLatestSatelliteFrame, satelliteLayer])
+  }, [
+    activeSatelliteFrames.length,
+    followLatestSatelliteFrame,
+    latestSatelliteFrame,
+    satelliteLayer,
+  ])
 
   useEffect(() => {
     if (
@@ -574,7 +859,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-brand">
           <p className="eyebrow">StormVector</p>
-          <h1>Live weather workstation</h1>
+          <h1>Weather workstation</h1>
         </div>
         <div className="search-panel">
           <form className="search-row" onSubmit={handleSearchSubmit}>
@@ -586,7 +871,7 @@ function App() {
               placeholder="Search city, state, or address"
             />
             <button type="submit" disabled={searching}>
-              {searching ? 'Searching...' : 'Search'}
+              {searching ? 'Searching...' : 'Go'}
             </button>
           </form>
           <div className="utility-row">
@@ -600,7 +885,7 @@ function App() {
                   setShowSettingsMenu(false)
                 }}
               >
-                Saved Places
+                Places
               </button>
               {showLocationMenu ? (
                 <div className="popover-panel">
@@ -712,7 +997,7 @@ function App() {
                   setShowLocationMenu(false)
                 }}
               >
-                Settings
+                Prefs
               </button>
               {showSettingsMenu ? (
                 <div className="popover-panel">
@@ -729,6 +1014,185 @@ function App() {
                           {mode === 'light' ? 'Light' : 'Dark'}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="popover-section">
+                    <p className="card-label">Camera states</p>
+                    <div className="chip-group">
+                      {availableCameraStates.length > 0 ? (
+                        availableCameraStates.map((state) => (
+                          <button
+                            key={state}
+                            type="button"
+                            className={
+                              normalizedCameraStateFilters[state] ? 'chip active' : 'chip'
+                            }
+                            onClick={() =>
+                              setCameraStateFilters((current) => ({
+                                ...normalizeCameraStateFilters(
+                                  availableCameraStates,
+                                  current,
+                                ),
+                                [state]:
+                                  !normalizeCameraStateFilters(
+                                    availableCameraStates,
+                                    current,
+                                  )[state],
+                              }))
+                            }
+                          >
+                            {state}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="muted compact-copy">
+                          Turn on Cameras once to load available states.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="popover-section">
+                    <div className="settings-row">
+                      <div>
+                        <p className="card-label">Custom cameras</p>
+                        <strong>{customCameraFeeds.length} saved</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-action"
+                        onClick={() =>
+                          setCustomCameraDraft((current) => ({
+                            ...current,
+                            latitude: selectedCoordinates[1].toFixed(4),
+                            longitude: selectedCoordinates[0].toFixed(4),
+                          }))
+                        }
+                      >
+                        Use point
+                      </button>
+                    </div>
+
+                    <div className="custom-camera-form">
+                      <input
+                        type="text"
+                        placeholder="Camera name"
+                        value={customCameraDraft.name}
+                        onChange={(event) =>
+                          setCustomCameraDraft((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                      />
+                      <div className="custom-camera-grid">
+                        <input
+                          type="text"
+                          placeholder="Latitude"
+                          value={customCameraDraft.latitude}
+                          onChange={(event) =>
+                            setCustomCameraDraft((current) => ({
+                              ...current,
+                              latitude: event.target.value,
+                            }))
+                          }
+                        />
+                        <input
+                          type="text"
+                          placeholder="Longitude"
+                          value={customCameraDraft.longitude}
+                          onChange={(event) =>
+                            setCustomCameraDraft((current) => ({
+                              ...current,
+                              longitude: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Image URL"
+                        value={customCameraDraft.imageUrl}
+                        onChange={(event) =>
+                          setCustomCameraDraft((current) => ({
+                            ...current,
+                            imageUrl: event.target.value,
+                          }))
+                        }
+                      />
+                      <input
+                        type="text"
+                        placeholder="Page URL"
+                        value={customCameraDraft.pageUrl}
+                        onChange={(event) =>
+                          setCustomCameraDraft((current) => ({
+                            ...current,
+                            pageUrl: event.target.value,
+                          }))
+                        }
+                      />
+                      <input
+                        type="text"
+                        placeholder="Embed URL (optional)"
+                        value={customCameraDraft.embedUrl}
+                        onChange={(event) =>
+                          setCustomCameraDraft((current) => ({
+                            ...current,
+                            embedUrl: event.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="inline-action"
+                        onClick={() => {
+                          const nextCamera = buildCustomCameraFromDraft(customCameraDraft)
+
+                          if (!nextCamera) {
+                            return
+                          }
+
+                          setCustomCameraFeeds((current) =>
+                            upsertCustomCamera(current, nextCamera),
+                          )
+                          setCustomCameraDraft({
+                            name: '',
+                            latitude: '',
+                            longitude: '',
+                            pageUrl: '',
+                            imageUrl: '',
+                            embedUrl: '',
+                          })
+                        }}
+                      >
+                        Save camera
+                      </button>
+                    </div>
+
+                    <div className="favorite-list">
+                      {customCameraFeeds.length > 0 ? (
+                        customCameraFeeds.map((camera) => (
+                          <div key={camera.id} className="favorite-item">
+                            <span className="muted compact-copy">{camera.name}</span>
+                            <button
+                              type="button"
+                              className="inline-action"
+                              onClick={() =>
+                                setCustomCameraFeeds((current) =>
+                                  current.filter((item) => item.id !== camera.id),
+                                )
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="muted">
+                          Add one-off cameras here when a provider API does not exist.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -763,6 +1227,153 @@ function App() {
                   </div>
 
                   <div className="popover-section">
+                    <p className="card-label">Report types</p>
+                    <div className="chip-group">
+                      {(
+                        [
+                          ['tornado', 'Tornado'],
+                          ['hail', 'Hail'],
+                          ['wind', 'Wind'],
+                          ['flood', 'Flood'],
+                          ['winter', 'Winter'],
+                          ['rain', 'Rain'],
+                          ['other', 'Other'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={reportTypeFilters[id] ? 'chip active' : 'chip'}
+                          onClick={() =>
+                            setReportTypeFilters((current) => ({
+                              ...current,
+                              [id]: !current[id],
+                            }))
+                          }
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="popover-section">
+                    <div className="settings-row">
+                      <div>
+                        <p className="card-label">Audible alerts</p>
+                        <strong>{audibleNearbyAlerts.length} nearby monitored</strong>
+                      </div>
+                      <div className="chip-group">
+                        <button
+                          type="button"
+                          className="inline-action"
+                          onClick={() => void playAudibleAlertTone('watch')}
+                        >
+                          Test watch
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-action"
+                          onClick={() => void playAudibleAlertTone('warning')}
+                        >
+                          Test warning
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="slider-group">
+                      <label className="card-label">Alert on</label>
+                      <div className="chip-group">
+                        {[
+                          ['warning', 'Warnings'],
+                          ['watch', 'Watches'],
+                        ].map(([id, label]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={
+                              audibleAlertSettings[id as 'warning' | 'watch']
+                                ? 'chip active'
+                                : 'chip'
+                            }
+                            onClick={() =>
+                              setAudibleAlertSettings((current) => ({
+                                ...current,
+                                [id]: !current[id as 'warning' | 'watch'],
+                              }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="slider-group">
+                      <label className="card-label">Watch point</label>
+                      <div className="chip-group">
+                        {[
+                          ['selected', 'Selected point'],
+                          ['home', 'Home'],
+                        ].map(([id, label]) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={
+                              audibleAlertSettings.target === id
+                                ? 'chip active'
+                                : 'chip'
+                            }
+                            onClick={() =>
+                              setAudibleAlertSettings((current) => ({
+                                ...current,
+                                target: id as AudibleAlertSettings['target'],
+                              }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="slider-group">
+                      <label className="card-label">Radius</label>
+                      <div className="chip-group">
+                        {[25, 50, 70, 100].map((radius) => (
+                          <button
+                            key={radius}
+                            type="button"
+                            className={
+                              audibleAlertSettings.radiusMiles === radius
+                                ? 'chip active'
+                                : 'chip'
+                            }
+                            onClick={() =>
+                              setAudibleAlertSettings((current) => ({
+                                ...current,
+                                radiusMiles:
+                                  radius as AudibleAlertSettings['radiusMiles'],
+                              }))
+                            }
+                          >
+                            {radius} mi
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p className="muted compact-copy">
+                      Monitoring {audibleAlertLocationLabel} within{' '}
+                      {audibleAlertSettings.radiusMiles} miles for new{' '}
+                      {describeAudibleAlertTypes(audibleAlertSettings)}.
+                      {audibleAlertSettings.target === 'home' && !homeLocation
+                        ? ' Home is not set yet, so this is following the selected point.'
+                        : ''}
+                    </p>
+                  </div>
+
+                  <div className="popover-section">
                     <p className="card-label">Layer opacity</p>
                     <div className="slider-group">
                       <label className="slider-row">
@@ -771,8 +1382,9 @@ function App() {
                       </label>
                       <input
                         type="range"
-                        min="20"
+                        min="0"
                         max="100"
+                        step="1"
                         value={layerOpacity.radar}
                         onChange={(event) =>
                           setLayerOpacity((current) => ({
@@ -789,8 +1401,9 @@ function App() {
                       </label>
                       <input
                         type="range"
-                        min="20"
+                        min="0"
                         max="100"
+                        step="1"
                         value={layerOpacity.satellite}
                         onChange={(event) =>
                           setLayerOpacity((current) => ({
@@ -802,13 +1415,52 @@ function App() {
                     </div>
                     <div className="slider-group">
                       <label className="slider-row">
-                        <span>Polygons</span>
+                        <span>Warnings</span>
+                        <strong>{layerOpacity.warnings}%</strong>
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={layerOpacity.warnings}
+                        onChange={(event) =>
+                          setLayerOpacity((current) => ({
+                            ...current,
+                            warnings: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="slider-group">
+                      <label className="slider-row">
+                        <span>Watches</span>
+                        <strong>{layerOpacity.watches}%</strong>
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={layerOpacity.watches}
+                        onChange={(event) =>
+                          setLayerOpacity((current) => ({
+                            ...current,
+                            watches: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="slider-group">
+                      <label className="slider-row">
+                        <span>Forecast Polygons</span>
                         <strong>{layerOpacity.polygons}%</strong>
                       </label>
                       <input
                         type="range"
-                        min="8"
-                        max="60"
+                        min="0"
+                        max="100"
+                        step="1"
                         value={layerOpacity.polygons}
                         onChange={(event) =>
                           setLayerOpacity((current) => ({
@@ -842,9 +1494,88 @@ function App() {
       </nav>
 
       <main className="workspace">
-          <section className="map-panel">
-            <div className="map-toolbar">
-              <div className="toolbar-main">
+        <section className="map-panel">
+          <div className="map-stage">
+            <MapCanvas
+              center={selectedCoordinates}
+              shouldRecenterMap={shouldRecenterMap}
+              themeMode={themeMode}
+              activeLayer={activeLayer}
+              radarProduct={radarProduct}
+              radarView={radarView}
+              satelliteLayer={satelliteLayer}
+              radarOpacity={layerOpacity.radar / 100}
+              satelliteOpacity={layerOpacity.satellite / 100}
+              warningOpacity={layerOpacity.warnings / 100}
+              watchOpacity={layerOpacity.watches / 100}
+              polygonOpacity={layerOpacity.polygons / 100}
+              selectedRegionalRadarTime={selectedRegionalRadarTime}
+              selectedSatelliteTime={selectedSatelliteTime}
+              radarSites={radarSites}
+              nearestRadarSite={activeRadarSite}
+              localRadarDefinition={localRadarDefinition}
+              selectedRadarSiteId={selectedRadarSiteId}
+              selectedLocalRadarTime={selectedLocalRadarTime}
+              alertFeatures={visibleAlertFeatures}
+              localStormReports={recentLocalStormReports}
+              cameraFeeds={visibleCameraFeeds}
+              spotterNetworkFeatures={spotterNetworkFeatures}
+              showCameras={showCameras}
+              showSpotterReports={showSpotterReports}
+              showChasers={showChasers}
+              spcFeatures={spcFeatures}
+              winterFeatures={winterFeatures}
+              activeForecastOverlay={activeForecastOverlay}
+              selectedSpcDay={selectedSpcDay}
+              selectedWinterDay={selectedWinterDay}
+              selectedWinterProduct={selectedWinterProduct}
+              trackToolEnabled={trackToolEnabled}
+              stormTrackOrigin={stormTrackOrigin}
+              stormTrackEnd={stormTrackEnd}
+              stormTrackSpeedMph={stormTrackSpeedMph}
+              stormTrackResetKey={stormTrackResetKey}
+              onHazardSelect={(selection) => {
+                setSelectedCamera(null)
+                setSelectedHazard(selection)
+                setSidePanelTab('hazards')
+              }}
+              onCameraSelect={(selection) => {
+                setSelectedHazard(null)
+                setSelectedCamera(selection)
+                setSidePanelTab('hazards')
+              }}
+              onStormTrackOriginSet={(coordinates) => {
+                setStormTrackOrigin(coordinates)
+                setStormTrackEnd(null)
+              }}
+              onStormTrackEndSet={setStormTrackEnd}
+                onMapClick={(coordinates) => {
+                  setSelectedCoordinates(coordinates)
+                  setShouldRecenterMap(false)
+                  setSelectedHazard(null)
+                  setSelectedCamera(null)
+                setSelectedLocalRadarFrameIndex(0)
+                setFollowLatestFrame(true)
+                setLocalPlaybackRunning(false)
+                setSearchText(
+                  `${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`,
+                )
+                setSearchError(null)
+              }}
+              onRadarSiteSelect={(siteId) => {
+                setSelectedRadarSiteId(siteId)
+                setRadarView('local')
+                setRadarProduct('reflectivity')
+                setSelectedLocalRadarFrameIndex(0)
+                setFollowLatestFrame(true)
+                setLocalPlaybackRunning(false)
+                setSearchError(null)
+              }}
+            />
+
+            <div className="map-floating map-floating-top-left">
+              <div className="map-toolbar map-glass">
+                <div className="toolbar-main">
             {activeLayer === 'Radar' ? (
               <div className="radar-controls">
                 <div className="control-tier">
@@ -888,6 +1619,33 @@ function App() {
                         {product.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="control-tier">
+                  <span className="control-label">Overlays</span>
+                  <div className="segmented-group" aria-label="Radar overlays">
+                    <button
+                      type="button"
+                      className={showCameras ? 'chip active' : 'chip'}
+                      onClick={() => setShowCameras((current) => !current)}
+                    >
+                      Cameras{visibleCameraFeeds.length > 0 ? ` (${visibleCameraFeeds.length})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      className={showChasers ? 'chip active' : 'chip'}
+                      onClick={() => setShowChasers((current) => !current)}
+                    >
+                      Chasers{spotterNetworkFeatures.length > 0 ? ` (${spotterNetworkFeatures.length})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      className={showSpotterReports ? 'chip active' : 'chip'}
+                      onClick={() => setShowSpotterReports((current) => !current)}
+                    >
+                      Reports{recentLocalStormReports.length > 0 ? ` (${recentLocalStormReports.length})` : ''}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -973,9 +1731,12 @@ function App() {
                 </div>
               </>
             ) : null}
+                </div>
               </div>
+            </div>
 
-            <div className="timestamp-card">
+            <div className="map-floating map-floating-top-right">
+              <div className="timestamp-card map-glass">
               <span className="timestamp-label">Viewing</span>
               <strong>{viewingLabel}</strong>
               <span>{statusPrimary}</span>
@@ -1001,63 +1762,277 @@ function App() {
                 </div>
               ) : null}
             </div>
-          </div>
+            </div>
 
-          <MapCanvas
-            center={selectedCoordinates}
-            shouldRecenterMap={shouldRecenterMap}
-            themeMode={themeMode}
-            activeLayer={activeLayer}
-            radarProduct={radarProduct}
-            radarView={radarView}
-            satelliteLayer={satelliteLayer}
-            radarOpacity={layerOpacity.radar / 100}
-            satelliteOpacity={layerOpacity.satellite / 100}
-            polygonOpacity={layerOpacity.polygons / 100}
-            selectedRegionalRadarTime={selectedRegionalRadarTime}
-            selectedSatelliteTime={selectedSatelliteTime}
-            radarSites={radarSites}
-            nearestRadarSite={activeRadarSite}
-            localRadarDefinition={localRadarDefinition}
-            selectedRadarSiteId={selectedRadarSiteId}
-            selectedLocalRadarTime={selectedLocalRadarTime}
-            alertFeatures={visibleAlertFeatures}
-            spcFeatures={spcFeatures}
-            winterFeatures={winterFeatures}
-            activeForecastOverlay={activeForecastOverlay}
-            selectedSpcDay={selectedSpcDay}
-            selectedWinterDay={selectedWinterDay}
-            selectedWinterProduct={selectedWinterProduct}
-            onHazardSelect={setSelectedHazard}
-              onMapClick={(coordinates) => {
-                setSelectedCoordinates(coordinates)
-                setShouldRecenterMap(false)
-                setSelectedHazard(null)
-                setSelectedRadarSiteId(null)
-              setSelectedLocalRadarFrameIndex(0)
-              setFollowLatestFrame(true)
-              setLocalPlaybackRunning(false)
-              setSearchText(
-                `${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`,
-              )
-              setSearchError(null)
-            }}
-            onRadarSiteSelect={(siteId) => {
-              setSelectedRadarSiteId(siteId)
-              setRadarView('local')
-              setRadarProduct('reflectivity')
-              setSelectedLocalRadarFrameIndex(0)
-              setFollowLatestFrame(true)
-              setLocalPlaybackRunning(false)
-              setSearchError(null)
-            }}
-          />
+            <div className="map-floating map-floating-bottom-left">
+            <div className="track-bar map-glass">
+            <div className="track-bar-main">
+              <div className="track-bar-title">
+                <p className="card-label">Storm Track</p>
+                <strong>
+                  {stormTrackOrigin && stormTrackEnd
+                    ? `${Math.round(stormTrackDistanceMiles)} mi in ${formatEtaDuration(stormTrackTravelMinutes)}`
+                    : stormTrackOrigin
+                      ? 'Set the end of motion on the map'
+                      : 'Place a storm point to begin'}
+                </strong>
+                <span className="source-note">
+                  {trackToolEnabled
+                    ? stormTrackOrigin
+                      ? 'Drag or click from the storm point to set motion.'
+                      : 'Click the map to place the storm location.'
+                    : 'Turn on Track ETA to place a storm point and estimate arrival times.'}
+                </span>
+              </div>
+
+              <div className="track-bar-actions">
+                <button
+                  type="button"
+                  className={trackToolEnabled ? 'chip active' : 'chip'}
+                  onClick={() => setTrackToolEnabled((current) => !current)}
+                >
+                  {trackToolEnabled ? 'Track ETA On' : 'Track ETA'}
+                </button>
+                <button
+                  type="button"
+                  className="inline-action"
+                  disabled={!stormTrackOrigin && !stormTrackEnd}
+                  onClick={() => {
+                    setStormTrackOrigin(null)
+                    setStormTrackEnd(null)
+                    setStormTrackResetKey((current) => current + 1)
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="track-bar-controls">
+              <label className="slider-row">
+                <span>Speed</span>
+                <strong>{stormTrackSpeedMph} mph</strong>
+              </label>
+              <input
+                type="range"
+                min="5"
+                max="80"
+                step="5"
+                value={stormTrackSpeedMph}
+                onChange={(event) => setStormTrackSpeedMph(Number(event.target.value))}
+              />
+            </div>
+
+            {stormTrackPlacesLoading ? (
+              <p className="source-note">Finding towns along the track...</p>
+            ) : null}
+
+            {stormTrackArrivals.length > 0 ? (
+              <div className="track-arrivals">
+                {stormTrackArrivals.map((arrival) => (
+                  <span key={arrival.label} className="badge calm">
+                    {arrival.label}: {arrival.etaLabel}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+            </div>
+
+            <div className="map-floating map-floating-bottom-center">
+              <footer className="timeline-panel map-glass">
+              <div className="timeline-header">
+                <p className="eyebrow">Playback</p>
+                <h3>{activePlaybackLabel}</h3>
+              </div>
+
+              <div className="timeline-controls">
+                <div className="chip-group" aria-label="Playback range">
+                  {playbackWindows.map((windowOption) => (
+                    <button
+                      key={windowOption.id}
+                      type="button"
+                      className={
+                        playbackWindowMinutes === windowOption.id ? 'chip active' : 'chip'
+                      }
+                      onClick={() => setPlaybackWindowMinutes(windowOption.id)}
+                    >
+                      {windowOption.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="chip-group" aria-label="Playback speed">
+                  {playbackSpeeds.map((speed) => (
+                    <button
+                      key={speed.id}
+                      type="button"
+                      className={playbackSpeed === speed.id ? 'chip active' : 'chip'}
+                      onClick={() => setPlaybackSpeed(speed.id)}
+                    >
+                      {speed.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="timeline-actions">
+                <button
+                  type="button"
+                  className="timeline-action"
+                  disabled={
+                    activeLayer === 'Satellite'
+                      ? activeSatelliteFrames.length < 2
+                      : radarView === 'regional'
+                        ? activeRegionalRadarFrames.length < 2
+                        : activeLocalRadarFrames.length < 2
+                  }
+                  onClick={() => {
+                    if (activeLayer === 'Satellite') {
+                      if (
+                        followLatestSatelliteFrame &&
+                        activeSatelliteFrames.length > 1
+                      ) {
+                        setSelectedSatelliteFrameIndex(0)
+                      }
+
+                      setFollowLatestSatelliteFrame(false)
+                      setSatellitePlaybackRunning((current) => !current)
+                      return
+                    }
+
+                    if (radarView === 'regional') {
+                      if (
+                        followLatestRegionalFrame &&
+                        activeRegionalRadarFrames.length > 1
+                      ) {
+                        setSelectedRegionalRadarFrameIndex(0)
+                      }
+
+                      setFollowLatestRegionalFrame(false)
+                      setRegionalPlaybackRunning((current) => !current)
+                      return
+                    }
+
+                    if (followLatestFrame && activeLocalRadarFrames.length > 1) {
+                      setSelectedLocalRadarFrameIndex(0)
+                    }
+
+                    setFollowLatestFrame(false)
+                    setLocalPlaybackRunning((current) => !current)
+                  }}
+                >
+                  {activeLayer === 'Satellite'
+                    ? satellitePlaybackRunning
+                      ? 'Pause'
+                      : 'Play'
+                    : radarView === 'regional'
+                      ? regionalPlaybackRunning
+                        ? 'Pause'
+                        : 'Play'
+                      : localPlaybackRunning
+                        ? 'Pause'
+                        : 'Play'}
+                </button>
+                <button
+                  type="button"
+                  className="timeline-action"
+                  disabled={
+                    activeLayer === 'Satellite'
+                      ? activeSatelliteFrames.length === 0
+                      : radarView === 'regional'
+                        ? activeRegionalRadarFrames.length === 0
+                        : activeLocalRadarFrames.length === 0
+                  }
+                  onClick={() => {
+                    if (activeLayer === 'Satellite') {
+                      setSatellitePlaybackRunning(false)
+                      setFollowLatestSatelliteFrame(true)
+                      setSelectedSatelliteFrameIndex(
+                        Math.max(activeSatelliteFrames.length - 1, 0),
+                      )
+                      return
+                    }
+
+                    if (radarView === 'regional') {
+                      setRegionalPlaybackRunning(false)
+                      setFollowLatestRegionalFrame(true)
+                      setSelectedRegionalRadarFrameIndex(
+                        Math.max(activeRegionalRadarFrames.length - 1, 0),
+                      )
+                      return
+                    }
+
+                    setLocalPlaybackRunning(false)
+                    setFollowLatestFrame(true)
+                    setSelectedLocalRadarFrameIndex(
+                      Math.max(activeLocalRadarFrames.length - 1, 0),
+                    )
+                  }}
+                >
+                  Live
+                </button>
+              </div>
+
+              <div className="timeline-scrubber">
+                <span className="timeline-edge">
+                  {currentTimelineFrames.length > 1
+                    ? formatFrameLabel(currentTimelineFrames[0])
+                    : 'Start'}
+                </span>
+                <input
+                  type="range"
+                  className="timeline-slider"
+                  min={0}
+                  max={Math.max(currentTimelineFrames.length - 1, 0)}
+                  step={1}
+                  value={Math.min(activePlaybackIndex, Math.max(currentTimelineFrames.length - 1, 0))}
+                  disabled={currentTimelineFrames.length === 0}
+                  onChange={(event) => {
+                    const index = Number(event.target.value)
+
+                    if (activeLayer === 'Satellite' && activeSatelliteFrames.length > 0) {
+                      setSatellitePlaybackRunning(false)
+                      setFollowLatestSatelliteFrame(
+                        index === activeSatelliteFrames.length - 1,
+                      )
+                      setSelectedSatelliteFrameIndex(index)
+                      return
+                    }
+
+                    if (radarView === 'regional' && activeRegionalRadarFrames.length > 0) {
+                      setRegionalPlaybackRunning(false)
+                      setFollowLatestRegionalFrame(
+                        index === activeRegionalRadarFrames.length - 1,
+                      )
+                      setSelectedRegionalRadarFrameIndex(index)
+                      return
+                    }
+
+                    if (radarView === 'local' && activeLocalRadarFrames.length > 0) {
+                      setLocalPlaybackRunning(false)
+                      setFollowLatestFrame(
+                        index === activeLocalRadarFrames.length - 1,
+                      )
+                      setSelectedLocalRadarFrameIndex(index)
+                    }
+                  }}
+                />
+                <span className="timeline-edge">
+                  {currentTimelineFrames.length > 0
+                    ? 'Live'
+                    : 'End'}
+                </span>
+              </div>
+              </footer>
+            </div>
+          </div>
         </section>
 
         <aside className="details-panel">
           <section className="panel hero-panel">
             <div>
-              <p className="eyebrow">Location</p>
+              <p className="eyebrow">Point</p>
               <h2>{weather.location.name}</h2>
               <p className="muted">
                 {weather.location.office}
@@ -1078,15 +2053,35 @@ function App() {
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel-heading">
-              <h3>Forecast</h3>
-              <span className="badge">
-                {source === 'live' ? 'Live NWS' : 'Fallback data'}
+          <section className="panel side-panel">
+            <div className="panel-heading side-panel-heading">
+              <div className="chip-group" aria-label="Side panel tabs">
+                <button
+                  type="button"
+                  className={sidePanelTab === 'forecast' ? 'chip active' : 'chip'}
+                  onClick={() => setSidePanelTab('forecast')}
+                >
+                  Forecast
+                </button>
+                <button
+                  type="button"
+                  className={sidePanelTab === 'hazards' ? 'chip active' : 'chip'}
+                  onClick={() => setSidePanelTab('hazards')}
+                >
+                  Hazards
+                </button>
+              </div>
+              <span className={sidePanelTab === 'hazards' ? 'badge danger' : 'badge'}>
+                {sidePanelTab === 'forecast'
+                  ? source === 'live'
+                    ? 'Live NWS'
+                    : 'Fallback'
+                  : `${nearbyAlerts.length} Nearby`}
               </span>
             </div>
 
-            <div className="forecast-grid">
+            {sidePanelTab === 'forecast' ? (
+              <div className="forecast-grid compact-forecast-grid">
                 {weather.forecast.map((period) => (
                   <article className="forecast-card" key={period.name}>
                     <p className="card-label">{period.name}</p>
@@ -1095,42 +2090,125 @@ function App() {
                   </article>
                 ))}
               </div>
-          </section>
+            ) : (
+              <>
+                {error ? <p className="error-text">{error}</p> : null}
 
-          <section className="panel">
-              <div className="panel-heading">
-                <h3>Hazards</h3>
-                <span className="badge danger">{nearbyAlerts.length} Nearby</span>
-              </div>
-
-            {error ? <p className="error-text">{error}</p> : null}
-
-            <div className="stack">
+                <div className="stack">
                 {selectedHazard ? (
                   <article className="hazard-card">
-                  <div>
-                    <p className="card-label">
-                      {selectedHazard.source === 'alerts'
-                        ? 'Selected alert polygon'
-                        : selectedHazard.source === 'spc'
-                          ? 'Selected SPC polygon'
-                          : 'Selected winter polygon'}
-                    </p>
-                    <strong>{selectedHazard.title}</strong>
-                  </div>
-                  <p className="compact-copy">{selectedHazard.subtitle}</p>
-                  <p className="compact-copy">{selectedHazard.summary}</p>
-                  {selectedHazard.body ? (
-                    <div className="hazard-body">{selectedHazard.body}</div>
-                  ) : null}
-                  <div className="hazard-detail-list">
-                    {selectedHazard.detailLines.map((line) => (
-                      <span key={line}>{line}</span>
-                    ))}
-                  </div>
-                </article>
-                ) : (
-                  nearbyAlerts.length > 0 ? (
+                    <div>
+                      <p className="card-label">
+                          {selectedHazard.source === 'alerts'
+                            ? 'Selected alert'
+                            : selectedHazard.source === 'spc'
+                              ? 'Selected SPC area'
+                              : selectedHazard.source === 'winter'
+                                ? 'Selected winter area'
+                                : selectedHazard.source === 'spotter'
+                                  ? 'Selected chaser'
+                                  : 'Selected report'}
+                      </p>
+                        <strong>{selectedHazard.title}</strong>
+                      </div>
+                      <p className="compact-copy">{selectedHazard.subtitle}</p>
+                      <p className="compact-copy">{selectedHazard.summary}</p>
+                      {selectedHazard.body ? (
+                        <div className="hazard-body">{selectedHazard.body}</div>
+                      ) : null}
+                      {selectedHazard.embedUrl ? (
+                        <div className="camera-embed-shell">
+                          <iframe
+                            src={selectedHazard.embedUrl}
+                            title={selectedHazard.title}
+                            loading="lazy"
+                            allow="autoplay; fullscreen"
+                          />
+                        </div>
+                      ) : null}
+                      <div className="hazard-detail-list">
+                        {selectedHazard.detailLines.map((line) => (
+                          <span key={line}>{line}</span>
+                        ))}
+                      </div>
+                      {selectedHazard.pageUrl ? (
+                        <a
+                          className="camera-link"
+                          href={selectedHazard.pageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open live feed
+                        </a>
+                      ) : null}
+                    </article>
+                  ) : selectedCamera ? (
+                    <article className="hazard-card">
+                      <div>
+                        <p className="card-label">Selected camera</p>
+                        <strong>{selectedCamera.title}</strong>
+                      </div>
+                      <p className="compact-copy">{selectedCamera.summary}</p>
+                      <div className="hazard-detail-list">
+                        <span>Provider: {selectedCamera.provider}</span>
+                      </div>
+                      {selectedCamera.embedUrl ? (
+                        <div className="camera-embed-shell">
+                          <iframe
+                            src={selectedCamera.embedUrl}
+                            title={selectedCamera.title}
+                            loading="lazy"
+                            allow="autoplay; fullscreen"
+                          />
+                        </div>
+                      ) : selectedCamera.imageUrl ? (
+                        <div className="camera-embed-shell">
+                          <img
+                            src={selectedCamera.imageUrl}
+                            alt={selectedCamera.title}
+                            className="camera-still-image"
+                          />
+                        </div>
+                      ) : null}
+                      {selectedCamera.pageUrl ? (
+                        <a
+                          className="camera-link"
+                          href={selectedCamera.pageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open source page
+                        </a>
+                      ) : null}
+                    </article>
+                  ) : showSpotterReports && nearbyReports.length > 0 ? (
+                    nearbyReports.map(({ report, distanceMiles, ageMinutes }) => (
+                      <button
+                        key={report.id}
+                        type="button"
+                        className="hazard-card hazard-button"
+                        onClick={() =>
+                          setSelectedHazard(buildLocalStormReportSelection(report))
+                        }
+                      >
+                        <div>
+                          <p className="card-label">
+                            {Math.round(distanceMiles)} mi away
+                          </p>
+                          <strong>{report.eventType}</strong>
+                        </div>
+                        <p className="compact-copy">
+                          {report.city || 'Unknown location'}, {report.state}
+                        </p>
+                        <p className="compact-copy">
+                          {report.remark ||
+                            (ageMinutes !== null
+                              ? formatReportAge(ageMinutes)
+                              : 'Recent local storm report')}
+                        </p>
+                      </button>
+                    ))
+                  ) : nearbyAlerts.length > 0 ? (
                     nearbyAlerts.map(({ alert, distanceMiles, containsPoint }) => (
                       <button
                         key={alert.id}
@@ -1147,7 +2225,6 @@ function App() {
                           <strong>{alert.event}</strong>
                         </div>
                         <p className="compact-copy">{alert.headline}</p>
-                        <p className="compact-copy">{alert.areaDescription}</p>
                       </button>
                     ))
                   ) : (
@@ -1157,203 +2234,20 @@ function App() {
                         <strong>No active hazards within 70 miles</strong>
                       </div>
                       <p className="compact-copy">
-                        Warning, watch, advisory, and statement polygons near the
-                        selected forecast point will appear here until one is clicked.
+                        {showSpotterReports
+                          ? 'Nearby reports and active warning polygons will appear here.'
+                          : 'Nearby warning and watch polygons will appear here.'}
                       </p>
                     </article>
-                  )
-                )}
-              </div>
+                  )}
+                </div>
+              </>
+            )}
           </section>
 
         </aside>
       </main>
 
-      <footer className="timeline-panel">
-        <div className="timeline-header">
-          <p className="eyebrow">Playback</p>
-          <h3>{activePlaybackLabel}</h3>
-        </div>
-
-        <div className="timeline-controls">
-          <div className="chip-group" aria-label="Playback range">
-            {playbackWindows.map((windowOption) => (
-              <button
-                key={windowOption.id}
-                type="button"
-                className={
-                  playbackWindowMinutes === windowOption.id ? 'chip active' : 'chip'
-                }
-                onClick={() => setPlaybackWindowMinutes(windowOption.id)}
-              >
-                {windowOption.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="chip-group" aria-label="Playback speed">
-            {playbackSpeeds.map((speed) => (
-              <button
-                key={speed.id}
-                type="button"
-                className={playbackSpeed === speed.id ? 'chip active' : 'chip'}
-                onClick={() => setPlaybackSpeed(speed.id)}
-              >
-                {speed.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="timeline-actions">
-          <button
-            type="button"
-            className="timeline-action"
-            disabled={
-              activeLayer === 'Satellite'
-                ? activeSatelliteFrames.length < 2
-                : radarView === 'regional'
-                  ? activeRegionalRadarFrames.length < 2
-                  : activeLocalRadarFrames.length < 2
-            }
-            onClick={() => {
-              if (activeLayer === 'Satellite') {
-                if (
-                  followLatestSatelliteFrame &&
-                  activeSatelliteFrames.length > 1
-                ) {
-                  setSelectedSatelliteFrameIndex(0)
-                }
-
-                setFollowLatestSatelliteFrame(false)
-                setSatellitePlaybackRunning((current) => !current)
-                return
-              }
-
-              if (radarView === 'regional') {
-                if (
-                  followLatestRegionalFrame &&
-                  activeRegionalRadarFrames.length > 1
-                ) {
-                  setSelectedRegionalRadarFrameIndex(0)
-                }
-
-                setFollowLatestRegionalFrame(false)
-                setRegionalPlaybackRunning((current) => !current)
-                return
-              }
-
-              if (followLatestFrame && activeLocalRadarFrames.length > 1) {
-                setSelectedLocalRadarFrameIndex(0)
-              }
-
-              setFollowLatestFrame(false)
-              setLocalPlaybackRunning((current) => !current)
-            }}
-          >
-            {activeLayer === 'Satellite'
-              ? satellitePlaybackRunning
-                ? 'Pause'
-                : 'Play'
-              : radarView === 'regional'
-                ? regionalPlaybackRunning
-                  ? 'Pause'
-                  : 'Play'
-                : localPlaybackRunning
-                  ? 'Pause'
-                  : 'Play'}
-          </button>
-          <button
-            type="button"
-            className="timeline-action"
-            disabled={
-              activeLayer === 'Satellite'
-                ? activeSatelliteFrames.length === 0
-                : radarView === 'regional'
-                  ? activeRegionalRadarFrames.length === 0
-                  : activeLocalRadarFrames.length === 0
-            }
-            onClick={() => {
-              if (activeLayer === 'Satellite') {
-                setSatellitePlaybackRunning(false)
-                setFollowLatestSatelliteFrame(true)
-                setSelectedSatelliteFrameIndex(
-                  Math.max(activeSatelliteFrames.length - 1, 0),
-                )
-                return
-              }
-
-              if (radarView === 'regional') {
-                setRegionalPlaybackRunning(false)
-                setFollowLatestRegionalFrame(true)
-                setSelectedRegionalRadarFrameIndex(
-                  Math.max(activeRegionalRadarFrames.length - 1, 0),
-                )
-                return
-              }
-
-              setLocalPlaybackRunning(false)
-              setFollowLatestFrame(true)
-              setSelectedLocalRadarFrameIndex(
-                Math.max(activeLocalRadarFrames.length - 1, 0),
-              )
-            }}
-          >
-            Live
-          </button>
-        </div>
-
-        <div className="timeline-scrubber">
-          <span className="timeline-edge">
-            {currentTimelineFrames.length > 1
-              ? formatFrameLabel(currentTimelineFrames[0])
-              : 'Start'}
-          </span>
-          <input
-            type="range"
-            className="timeline-slider"
-            min={0}
-            max={Math.max(currentTimelineFrames.length - 1, 0)}
-            step={1}
-            value={Math.min(activePlaybackIndex, Math.max(currentTimelineFrames.length - 1, 0))}
-            disabled={currentTimelineFrames.length === 0}
-            onChange={(event) => {
-              const index = Number(event.target.value)
-
-              if (activeLayer === 'Satellite' && activeSatelliteFrames.length > 0) {
-                setSatellitePlaybackRunning(false)
-                setFollowLatestSatelliteFrame(
-                  index === activeSatelliteFrames.length - 1,
-                )
-                setSelectedSatelliteFrameIndex(index)
-                return
-              }
-
-              if (radarView === 'regional' && activeRegionalRadarFrames.length > 0) {
-                setRegionalPlaybackRunning(false)
-                setFollowLatestRegionalFrame(
-                  index === activeRegionalRadarFrames.length - 1,
-                )
-                setSelectedRegionalRadarFrameIndex(index)
-                return
-              }
-
-              if (radarView === 'local' && activeLocalRadarFrames.length > 0) {
-                setLocalPlaybackRunning(false)
-                setFollowLatestFrame(
-                  index === activeLocalRadarFrames.length - 1,
-                )
-                setSelectedLocalRadarFrameIndex(index)
-              }
-            }}
-          />
-          <span className="timeline-edge">
-            {currentTimelineFrames.length > 0
-              ? 'Live'
-              : 'End'}
-          </span>
-        </div>
-      </footer>
     </div>
   )
 }
@@ -1390,6 +2284,57 @@ function readStoredJson<T>(key: string, fallback: T): T {
   }
 }
 
+function normalizeLayerOpacity(value: typeof defaultLayerOpacity) {
+  return {
+    radar: clampPercentage(value.radar, defaultLayerOpacity.radar),
+    satellite: clampPercentage(value.satellite, defaultLayerOpacity.satellite),
+    warnings: clampPercentage(value.warnings, defaultLayerOpacity.warnings),
+    watches: clampPercentage(value.watches, defaultLayerOpacity.watches),
+    polygons: clampPercentage(value.polygons, defaultLayerOpacity.polygons),
+  }
+}
+
+function normalizeReportTypeFilters(value: ReportTypeFilters) {
+  return {
+    tornado: Boolean(value.tornado),
+    hail: Boolean(value.hail),
+    wind: Boolean(value.wind),
+    flood: Boolean(value.flood),
+    winter: Boolean(value.winter),
+    rain: Boolean(value.rain),
+    other: Boolean(value.other),
+  }
+}
+
+function normalizeCameraStateFilters(
+  availableStates: string[],
+  value: CameraStateFilters,
+) {
+  return availableStates.reduce<CameraStateFilters>((accumulator, state) => {
+    accumulator[state] = value[state] ?? true
+    return accumulator
+  }, {})
+}
+
+function isCameraVisibleForState(
+  state: string | undefined,
+  filters: CameraStateFilters,
+) {
+  if (!state) {
+    return true
+  }
+
+  return filters[state] ?? true
+}
+
+function clampPercentage(value: number, fallback: number) {
+  if (!Number.isFinite(value)) {
+    return fallback
+  }
+
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
 function upsertFavoriteLocation(
   current: SavedLocation[],
   nextLocation: SavedLocation,
@@ -1406,6 +2351,40 @@ function upsertFavoriteLocation(
   }
 
   return [nextLocation, ...current].slice(0, 6)
+}
+
+function buildCustomCameraFromDraft(
+  draft: CustomCameraDraft,
+): CameraFeedInput | null {
+  const latitude = Number(draft.latitude)
+  const longitude = Number(draft.longitude)
+
+  if (
+    !draft.name.trim() ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    (!draft.imageUrl.trim() && !draft.embedUrl.trim() && !draft.pageUrl.trim())
+  ) {
+    return null
+  }
+
+  return {
+    id: `custom-${draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${latitude.toFixed(4)}-${longitude.toFixed(4)}`,
+    name: draft.name.trim(),
+    coordinates: [longitude, latitude],
+    pageUrl: draft.pageUrl.trim() || undefined,
+    imageUrl: draft.imageUrl.trim() || undefined,
+    embedUrl: draft.embedUrl.trim() || undefined,
+    description: 'Saved custom camera.',
+  }
+}
+
+function upsertCustomCamera(
+  current: CameraFeedInput[],
+  nextCamera: CameraFeedInput,
+) {
+  const remaining = current.filter((camera) => camera.id !== nextCamera.id)
+  return [nextCamera, ...remaining].slice(0, 24)
 }
 
 function formatFrameLabel(frame: string) {
@@ -1525,6 +2504,30 @@ function buildAlertSelection(alert: AlertFeature): HazardSelection {
   }
 }
 
+function buildLocalStormReportSelection(
+  report: LocalStormReportFeature,
+): HazardSelection {
+  return {
+    source: 'lsr',
+    title: report.eventType,
+    subtitle: `${report.city || 'Unknown location'}, ${report.state}`,
+    summary: report.remark || 'No report remark available.',
+    detailLines: [
+      `Reported: ${formatCompactHazardTimestamp(report.valid)}`,
+      ...(report.ageMinutes !== null ? [`Age: ${formatReportAge(report.ageMinutes)}`] : []),
+      `Source: ${report.source || 'Unknown'}`,
+      ...(report.magnitude && report.magnitude !== 'None'
+        ? [
+            `Magnitude: ${report.magnitude}${
+              report.qualifier ? ` (${report.qualifier})` : ''
+            }`,
+          ]
+        : []),
+      `County: ${report.county || 'Unknown'}`,
+    ],
+  }
+}
+
 function getNearbyAlerts(
   alerts: AlertFeature[],
   point: [number, number],
@@ -1551,6 +2554,29 @@ function getNearbyAlerts(
 
       return left.distanceMiles - right.distanceMiles
     })
+}
+
+function getNearbyReports(
+  reports: LocalStormReportFeature[],
+  point: [number, number],
+  maxMiles: number,
+) {
+  return reports
+    .map((report) => ({
+      report,
+      distanceMiles: distanceBetweenMiles(point, report.coordinates),
+      ageMinutes: report.ageMinutes,
+    }))
+    .filter(({ distanceMiles }) => distanceMiles <= maxMiles)
+    .sort((left, right) => {
+      if (left.distanceMiles !== right.distanceMiles) {
+        return left.distanceMiles - right.distanceMiles
+      }
+
+      return (left.ageMinutes ?? Number.POSITIVE_INFINITY) -
+        (right.ageMinutes ?? Number.POSITIVE_INFINITY)
+    })
+    .slice(0, 8)
 }
 
 function geometryContainsPoint(
@@ -1620,3 +2646,146 @@ function distanceBetweenMiles(
 
   return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
+
+function describeAudibleAlertTypes(settings: AudibleAlertSettings) {
+  const enabledTypes = [
+    settings.warning ? 'warnings' : null,
+    settings.watch ? 'watches' : null,
+  ].filter(Boolean)
+
+  if (enabledTypes.length === 0) {
+    return 'alerts'
+  }
+
+  if (enabledTypes.length === 2) {
+    return 'warnings and watches'
+  }
+
+  return enabledTypes[0] ?? 'alerts'
+}
+
+function formatReportAge(ageMinutes: number) {
+  if (ageMinutes <= 1) {
+    return 'just now'
+  }
+
+  if (ageMinutes < 60) {
+    return `${ageMinutes} min ago`
+  }
+
+  const hours = Math.floor(ageMinutes / 60)
+  const minutes = ageMinutes % 60
+
+  if (minutes === 0) {
+    return `${hours}h ago`
+  }
+
+  return `${hours}h ${minutes}m ago`
+}
+
+function buildStormTrackArrivals(
+  places: Array<{
+    label: string
+    alongTrackMiles: number
+  }>,
+  speedMph: number,
+): StormTrackArrival[] {
+  const minimumSpacingMiles = Math.max((Math.max(speedMph, 5) / 60) * 10, 6)
+
+  return places
+    .sort((left, right) => left.alongTrackMiles - right.alongTrackMiles)
+    .reduce<StormTrackArrival[]>((kept, place) => {
+      const previous = kept[kept.length - 1]
+
+      if (previous && place.alongTrackMiles - previous.distanceMiles < minimumSpacingMiles) {
+        return kept
+      }
+
+      kept.push({
+        label: place.label,
+        etaLabel: formatEtaDuration(
+          (place.alongTrackMiles / Math.max(speedMph, 1)) * 60,
+        ),
+        distanceMiles: place.alongTrackMiles,
+      })
+
+      return kept
+    }, [])
+    .slice(0, 6)
+}
+
+function formatEtaDuration(totalMinutes: number) {
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+    return 'now'
+  }
+
+  const roundedMinutes = Math.max(1, Math.round(totalMinutes))
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
+
+  if (hours === 0) {
+    return `${minutes}m`
+  }
+
+  return `${hours}:${String(minutes).padStart(2, '0')}`
+}
+
+async function playAudibleAlertTone(tone: 'warning' | 'watch') {
+  const AudioContextClass =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext
+
+  if (!AudioContextClass) {
+    return
+  }
+
+  const audioContext = new AudioContextClass()
+
+  try {
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume()
+    }
+
+    const now = audioContext.currentTime
+    const notes =
+      tone === 'warning'
+        ? [
+            { frequency: 932, duration: 0.12, delay: 0 },
+            { frequency: 1244, duration: 0.12, delay: 0.14 },
+            { frequency: 932, duration: 0.12, delay: 0.28 },
+            { frequency: 1244, duration: 0.2, delay: 0.42 },
+          ]
+        : [
+            { frequency: 660, duration: 0.14, delay: 0 },
+            { frequency: 784, duration: 0.18, delay: 0.18 },
+          ]
+
+    notes.forEach(({ frequency, duration, delay }) => {
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      const startTime = now + delay
+      const endTime = startTime + duration
+
+      oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(frequency, startTime)
+
+      gainNode.gain.setValueAtTime(0.0001, startTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.15, startTime + 0.02)
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, endTime)
+
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      oscillator.start(startTime)
+      oscillator.stop(endTime)
+    })
+
+    const totalDuration = Math.max(...notes.map((note) => note.delay + note.duration))
+    window.setTimeout(() => {
+      void audioContext.close()
+    }, Math.ceil((totalDuration + 0.2) * 1000))
+  } catch {
+    void audioContext.close()
+  }
+}
+

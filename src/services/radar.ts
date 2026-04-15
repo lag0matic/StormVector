@@ -17,6 +17,10 @@ const radarMetadataCache = new Map<string, Document>()
 const radarProductCache = new Map<string, RadarProductDefinition | null>()
 const regionalRadarTimelineCache = new Map<RegionalRadarProduct, string[]>()
 
+type FetchOptions = {
+  forceRefresh?: boolean
+}
+
 export async function fetchRadarSites(signal?: AbortSignal): Promise<RadarSite[]> {
   if (radarSiteCache) {
     return radarSiteCache
@@ -106,14 +110,15 @@ export async function fetchRadarProductDefinition(
   site: RadarSite,
   product: LocalRadarProduct,
   signal?: AbortSignal,
+  options?: FetchOptions,
 ): Promise<RadarProductDefinition | null> {
   const cacheKey = `${site.id}:${product}`
 
-  if (radarProductCache.has(cacheKey)) {
+  if (!options?.forceRefresh && radarProductCache.has(cacheKey)) {
     return radarProductCache.get(cacheKey) ?? null
   }
 
-  const document = await fetchRadarMetadata(site, signal)
+  const document = await fetchRadarMetadata(site, signal, options)
   const sitePrefix = site.id.toLowerCase()
   const candidates =
     product === 'velocity'
@@ -164,8 +169,9 @@ export async function fetchRadarProductDefinition(
 export async function fetchRegionalRadarTimeline(
   product: RegionalRadarProduct,
   signal?: AbortSignal,
+  options?: FetchOptions,
 ): Promise<string[]> {
-  if (regionalRadarTimelineCache.has(product)) {
+  if (!options?.forceRefresh && regionalRadarTimelineCache.has(product)) {
     return regionalRadarTimelineCache.get(product) ?? []
   }
 
@@ -173,7 +179,10 @@ export async function fetchRegionalRadarTimeline(
     product === 'composite' ? 'conus_cref_qcd' : 'conus_bref_qcd'
   const response = await fetch(
     `https://opengeo.ncep.noaa.gov/geoserver/conus/${layerName}/wms?service=WMS&version=1.1.1&request=GetCapabilities`,
-    { signal },
+    {
+      signal,
+      cache: options?.forceRefresh ? 'no-store' : 'default',
+    },
   )
 
   if (!response.ok) {
@@ -203,14 +212,18 @@ export async function fetchRegionalRadarTimeline(
 async function fetchRadarMetadata(
   site: RadarSite,
   signal?: AbortSignal,
+  options?: FetchOptions,
 ): Promise<Document> {
-  if (radarMetadataCache.has(site.id)) {
+  if (!options?.forceRefresh && radarMetadataCache.has(site.id)) {
     return radarMetadataCache.get(site.id) as Document
   }
 
   const response = await fetch(
     `https://opengeo.ncep.noaa.gov/geoserver/${site.id.toLowerCase()}/ows?service=WMS&version=1.1.1&request=GetCapabilities`,
-    { signal },
+    {
+      signal,
+      cache: options?.forceRefresh ? 'no-store' : 'default',
+    },
   )
 
   if (!response.ok) {
