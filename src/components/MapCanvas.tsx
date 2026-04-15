@@ -183,6 +183,7 @@ export function MapCanvas({
   const onCameraSelectRef = useRef(onCameraSelect)
   const activeLayerRef = useRef(activeLayer)
   const activeForecastOverlayRef = useRef(activeForecastOverlay)
+  const radarViewRef = useRef(radarView)
   const stormTrackDragRef = useRef(false)
   const stormTrackPreviewEndRef = useRef<[number, number] | null>(null)
   const onStormTrackOriginSetRef = useRef(onStormTrackOriginSet)
@@ -200,6 +201,7 @@ export function MapCanvas({
   onStormTrackEndSetRef.current = onStormTrackEndSet
   activeLayerRef.current = activeLayer
   activeForecastOverlayRef.current = activeForecastOverlay
+  radarViewRef.current = radarView
   trackToolEnabledRef.current = trackToolEnabled
   stormTrackOriginRef.current = stormTrackOrigin
   stormTrackEndRef.current = stormTrackEnd
@@ -269,6 +271,11 @@ export function MapCanvas({
       event.preventDefault()
     })
     map.on('mousedown', (event) => {
+      if (event.originalEvent.button !== 0) {
+        pointerDownPointRef.current = null
+        return
+      }
+
       pointerDownPointRef.current = {
         x: event.point.x,
         y: event.point.y,
@@ -351,6 +358,11 @@ export function MapCanvas({
       stormTrackPreviewEndRef.current = null
     })
     map.on('click', (event) => {
+      if (event.originalEvent.button !== 0) {
+        pointerDownPointRef.current = null
+        return
+      }
+
       const pointerDownPoint = pointerDownPointRef.current
       pointerDownPointRef.current = null
 
@@ -556,6 +568,13 @@ export function MapCanvas({
     }
 
     const handleContextMenu = (event: maplibregl.MapMouseEvent) => {
+      if (
+        activeLayerRef.current !== 'Radar' ||
+        radarViewRef.current !== 'local'
+      ) {
+        return
+      }
+
       if (radarSites.length === 0) {
         return
       }

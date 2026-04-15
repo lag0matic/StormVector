@@ -847,11 +847,8 @@ function App() {
       setSelectedCoordinates(result.coordinates)
       setShouldRecenterMap(true)
       setSelectedHazard(null)
+      setSelectedCamera(null)
       setSearchText(result.label)
-      setSelectedRadarSiteId(null)
-      setSelectedLocalRadarFrameIndex(0)
-      setFollowLatestFrame(true)
-      setLocalPlaybackRunning(false)
     } catch (searchError) {
       const message =
         searchError instanceof Error
@@ -933,6 +930,7 @@ function App() {
                             setSelectedCoordinates(homeLocation.coordinates)
                             setShouldRecenterMap(true)
                             setSelectedHazard(null)
+                            setSelectedCamera(null)
                             setSearchText(homeLocation.label)
                             setSearchError(null)
                             setShowLocationMenu(false)
@@ -975,6 +973,7 @@ function App() {
                                 setSelectedCoordinates(location.coordinates)
                                 setShouldRecenterMap(true)
                                 setSelectedHazard(null)
+                                setSelectedCamera(null)
                                 setSearchText(location.label)
                                 setSearchError(null)
                                 setShowLocationMenu(false)
@@ -1511,14 +1510,11 @@ function App() {
                 setStormTrackEnd(null)
               }}
               onStormTrackEndSet={setStormTrackEnd}
-                onMapClick={(coordinates) => {
+              onMapClick={(coordinates) => {
                   setSelectedCoordinates(coordinates)
                   setShouldRecenterMap(false)
                   setSelectedHazard(null)
                   setSelectedCamera(null)
-                setSelectedLocalRadarFrameIndex(0)
-                setFollowLatestFrame(true)
-                setLocalPlaybackRunning(false)
                 setSearchText(
                   `${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`,
                 )
@@ -1526,8 +1522,6 @@ function App() {
               }}
               onRadarSiteSelect={(siteId) => {
                 setSelectedRadarSiteId(siteId)
-                setRadarView('local')
-                setRadarProduct('reflectivity')
                 setSelectedLocalRadarFrameIndex(0)
                 setFollowLatestFrame(true)
                 setLocalPlaybackRunning(false)

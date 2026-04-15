@@ -1,4 +1,4 @@
-import { buildActiveAlertsUrl, buildPointsUrl, fetchJson } from './nws'
+import { buildPointsUrl, fetchJson } from './nws'
 import type { HazardCard, LocationWeather } from '../types/weather'
 
 type NwsPointResponse = {
@@ -26,40 +26,36 @@ type NwsForecastResponse = {
   }
 }
 
-type NwsAlertsResponse = {
-  features: Array<{
-    properties: {
-      event?: string
-      severity?: string
-      headline?: string
-      description?: string
-    }
-  }>
-}
+const pointResponseCache = new Map<string, NwsPointResponse>()
+const forecastResponseCache = new Map<string, NwsForecastResponse>()
 
 export async function fetchLocationWeather(
   coordinates: [number, number],
   signal?: AbortSignal,
 ): Promise<LocationWeather> {
-  const latitude = Number(coordinates[1].toFixed(4))
-  const longitude = Number(coordinates[0].toFixed(4))
+  const latitude = Number(coordinates[1].toFixed(3))
+  const longitude = Number(coordinates[0].toFixed(3))
+  const pointCacheKey = `${latitude},${longitude}`
 
-  const point = await fetchJson<NwsPointResponse>(
-    buildPointsUrl(latitude, longitude),
-    {
+  const point =
+    pointResponseCache.get(pointCacheKey) ??
+    (await fetchJson<NwsPointResponse>(buildPointsUrl(latitude, longitude), {
       signal,
-    },
-  )
+    }))
+
+  pointResponseCache.set(pointCacheKey, point)
 
   const city = point.properties.relativeLocation?.properties?.city ?? 'Selected point'
   const state = point.properties.relativeLocation?.properties?.state ?? 'US'
+  const forecastCacheKey = point.properties.forecast
 
-  const [forecast, alerts] = await Promise.all([
-    fetchJson<NwsForecastResponse>(point.properties.forecast, { signal }),
-    fetchJson<NwsAlertsResponse>(buildActiveAlertsUrl(`${latitude},${longitude}`), {
+  const forecast =
+    forecastResponseCache.get(forecastCacheKey) ??
+    (await fetchJson<NwsForecastResponse>(point.properties.forecast, {
       signal,
-    }).catch(() => ({ features: [] })),
-  ])
+    }))
+
+  forecastResponseCache.set(forecastCacheKey, forecast)
 
   return {
     location: {
@@ -79,7 +75,7 @@ export async function fetchLocationWeather(
       temperature: formatTemperature(period.temperature, period.temperatureUnit),
       summary: period.shortForecast,
     })),
-    hazards: buildHazards(alerts),
+    hazards: buildForecastPlaceholders(),
     radar: {
       currentFrameLabel: 'Live radar mosaic',
       sourceLabel: 'NWS services, with playback adapter coming next',
@@ -91,7 +87,7 @@ export async function fetchLocationWeather(
       },
       {
         name: 'alerts-service',
-        role: 'Active alerts near the selected point.',
+        role: 'Active alerts are loaded through the dedicated map/polygon pipeline.',
       },
       {
         name: 'radar-service',
@@ -117,28 +113,17 @@ function formatTemperature(value?: number, unit?: string) {
   return `${value}°${unit ?? ''}`
 }
 
-function buildHazards(alerts: NwsAlertsResponse): HazardCard[] {
-  if (alerts.features.length === 0) {
-    return [
-      {
-        type: 'Alerts',
-        title: 'No active alerts nearby',
-        summary: 'The live NWS alerts feed did not return active products for this point.',
-      },
-      {
-        type: 'Storm Risk',
-        title: 'SPC integration next',
-        summary: 'Storm outlook polygons will be added as map layers rather than cards.',
-      },
-    ]
-  }
-
-  return alerts.features.slice(0, 3).map((feature) => ({
-    type: feature.properties.severity ?? 'Alert',
-    title: feature.properties.event ?? feature.properties.headline ?? 'Active alert',
-    summary:
-      feature.properties.headline ??
-      feature.properties.description?.slice(0, 140) ??
-      'Alert details available from NWS.',
-  }))
+function buildForecastPlaceholders(): HazardCard[] {
+  return [
+    {
+      type: 'Alerts',
+      title: 'Alerts on map',
+      summary: 'Warning and watch details are driven by the dedicated polygon layer.',
+    },
+    {
+      type: 'Storm Risk',
+      title: 'SPC outlooks on map',
+      summary: 'Severe-weather outlooks are shown as forecast overlays rather than cards.',
+    },
+  ]
 }
