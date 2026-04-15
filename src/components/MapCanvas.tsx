@@ -66,6 +66,13 @@ type MapCanvasProps = {
   onStormTrackEndSet: (coordinates: [number, number]) => void
 }
 
+type ProjectedTrackLabel = {
+  left: number
+  top: number
+  label: string
+  kind: 'origin' | 'eta' | 'heading'
+}
+
 const lightBasemapSourceId = 'light-basemap'
 const lightBasemapLayerId = 'light-basemap-layer'
 const darkBasemapSourceId = 'dark-basemap'
@@ -150,7 +157,7 @@ export function MapCanvas({
     height: number
   } | null>(null)
   const [projectedTrackLabels, setProjectedTrackLabels] = useState<
-    Array<{ left: number; top: number; label: string; kind: 'origin' | 'eta' }>
+    ProjectedTrackLabel[]
   >([])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -299,6 +306,17 @@ export function MapCanvas({
 
       stormTrackDragRef.current = false
       map.dragPan.enable()
+
+      const dragDistanceMiles = distanceBetweenCoordinatesMiles(
+        activeStormTrackOrigin,
+        stormTrackPreviewEndRef.current,
+      )
+
+      if (dragDistanceMiles < 1) {
+        stormTrackPreviewEndRef.current = null
+        return
+      }
+
       syncStormTrackSource(
         map,
         activeStormTrackOrigin,
@@ -344,27 +362,8 @@ export function MapCanvas({
           return
         }
 
-        syncStormTrackSource(
-          map,
-          stormTrackOriginRef.current,
-          trackPoint,
-          buildImmediateStormTrackMarkers(
-            stormTrackOriginRef.current,
-            trackPoint,
-            stormTrackSpeedRef.current,
-          ),
-        )
-        syncStormTrackLabelMarkers(
-          map,
-          stormTrackLabelMarkersRef.current,
-          stormTrackOriginRef.current,
-          buildImmediateStormTrackMarkers(
-            stormTrackOriginRef.current,
-            trackPoint,
-            stormTrackSpeedRef.current,
-          ),
-        )
-        onStormTrackEndSetRef.current(trackPoint)
+        // Once the origin is placed, the track endpoint should be created by
+        // click-drag-release from the storm point rather than a second click.
         return
       }
 
@@ -474,24 +473,26 @@ export function MapCanvas({
     }
 
     const handleTrackMouseDown = (event: maplibregl.MapMouseEvent) => {
-      const activeStormTrackOrigin = stormTrackOriginRef.current
-
-      if (
-        !trackToolEnabledRef.current ||
-        !activeStormTrackOrigin ||
-        event.originalEvent.button !== 0
-      ) {
+      if (!trackToolEnabledRef.current || event.originalEvent.button !== 0) {
         return
       }
 
       const targetPoint: [number, number] = [event.lngLat.lng, event.lngLat.lat]
+      const activeStormTrackOrigin = stormTrackOriginRef.current ?? targetPoint
 
-      if (distanceBetweenCoordinatesMiles(targetPoint, activeStormTrackOrigin) > 30) {
+      if (!stormTrackOriginRef.current) {
+        onStormTrackOriginSetRef.current(targetPoint)
+      }
+
+      if (
+        stormTrackOriginRef.current &&
+        distanceBetweenCoordinatesMiles(targetPoint, activeStormTrackOrigin) > 30
+      ) {
         return
       }
 
       stormTrackDragRef.current = true
-      stormTrackPreviewEndRef.current = stormTrackEndRef.current ?? activeStormTrackOrigin
+      stormTrackPreviewEndRef.current = activeStormTrackOrigin
       map.dragPan.disable()
     }
 
@@ -2346,8 +2347,9 @@ function syncStormTrackSource(
       filter: ['==', ['get', 'kind'], 'track'],
       paint: {
         'line-color': '#19b4ff',
-        'line-width': 3,
+        'line-width': 4,
         'line-dasharray': [2, 1.5],
+        'line-opacity': 0.92,
       },
     })
 
@@ -2361,9 +2363,9 @@ function syncStormTrackSource(
           'match',
           ['get', 'kind'],
           'origin',
-          6,
+          7,
           'end',
-          5,
+          8,
           4,
         ],
         'circle-color': [
@@ -2459,12 +2461,7 @@ function buildProjectedTrackLabels(
   }>,
 ) {
   const originPoint = map.project(stormTrackOrigin)
-  const labels: Array<{
-    left: number
-    top: number
-    label: string
-    kind: 'origin' | 'eta'
-  }> = [
+  const labels: ProjectedTrackLabel[] = [
     {
       left: originPoint.x + 8,
       top: originPoint.y - 26,
@@ -2473,7 +2470,7 @@ function buildProjectedTrackLabels(
     },
   ]
 
-  stormTrackMarkers.forEach((marker) => {
+  stormTrackMarkers.forEach((marker, index) => {
     const point = map.project(marker.coordinates)
     labels.push({
       left: point.x,
@@ -2481,9 +2478,34 @@ function buildProjectedTrackLabels(
       label: marker.label,
       kind: 'eta' as const,
     })
+
+    if (index === stormTrackMarkers.length - 1) {
+      labels.push({
+        left: point.x + 12,
+        top: point.y + 18,
+        label: buildTrackHeadingLabel(stormTrackOrigin, marker.coordinates),
+        kind: 'heading' as const,
+      })
+    }
   })
 
   return labels
+}
+
+function buildTrackHeadingLabel(
+  [startLon, startLat]: [number, number],
+  [endLon, endLat]: [number, number],
+) {
+  const startLatRad = (startLat * Math.PI) / 180
+  const endLatRad = (endLat * Math.PI) / 180
+  const deltaLonRad = ((endLon - startLon) * Math.PI) / 180
+  const y = Math.sin(deltaLonRad) * Math.cos(endLatRad)
+  const x =
+    Math.cos(startLatRad) * Math.sin(endLatRad) -
+    Math.sin(startLatRad) * Math.cos(endLatRad) * Math.cos(deltaLonRad)
+  const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+  return directions[Math.round(bearing / 22.5) % 16]
 }
 
 function projectPolygonFeatures<T extends { geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon }>(

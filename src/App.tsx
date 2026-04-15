@@ -55,6 +55,7 @@ const playbackSpeeds = [
   { id: 'fast', label: 'Fast', intervalMs: 425 },
 ] as const
 const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
+const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
 const regionalRadarProducts = [
@@ -418,6 +419,14 @@ function App() {
     stormTrackDistanceMiles > 0 && stormTrackSpeedMph > 0
       ? (stormTrackDistanceMiles / stormTrackSpeedMph) * 60
       : 0
+  const stormTrackHeading =
+    stormTrackOrigin && stormTrackEnd
+      ? describeTrackHeading(stormTrackOrigin, stormTrackEnd)
+      : null
+  const stormTrackSpeedPresets =
+    stormTrackOrigin && stormTrackEnd
+      ? buildStormTrackSpeedPresets(stormTrackDistanceMiles)
+      : []
   const {
     places: stormTrackPlaces,
     loading: stormTrackPlacesLoading,
@@ -1783,6 +1792,16 @@ function App() {
                       : 'Click the map to place the storm location.'
                     : 'Turn on Track ETA to place a storm point and estimate arrival times.'}
                 </span>
+                {stormTrackHeading ? (
+                  <div className="track-metadata">
+                    <span className="badge calm">
+                      Heading {stormTrackHeading.cardinal} ({stormTrackHeading.bearingLabel})
+                    </span>
+                    <span className="badge calm">
+                      Distance {Math.round(stormTrackDistanceMiles)} mi
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="track-bar-actions">
@@ -1821,6 +1840,22 @@ function App() {
                 value={stormTrackSpeedMph}
                 onChange={(event) => setStormTrackSpeedMph(Number(event.target.value))}
               />
+              {stormTrackSpeedPresets.length > 0 ? (
+                <div className="chip-group" aria-label="Storm motion presets">
+                  {stormTrackSpeedPresets.map((preset) => (
+                    <button
+                      key={preset.speedMph}
+                      type="button"
+                      className={
+                        stormTrackSpeedMph === preset.speedMph ? 'chip active' : 'chip'
+                      }
+                      onClick={() => setStormTrackSpeedMph(preset.speedMph)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             {stormTrackPlacesLoading ? (
@@ -2728,6 +2763,40 @@ function formatEtaDuration(totalMinutes: number) {
   }
 
   return `${hours}:${String(minutes).padStart(2, '0')}`
+}
+
+function buildStormTrackSpeedPresets(distanceMiles: number) {
+  return stormTrackSpeedOptions.map((speedMph) => ({
+    speedMph,
+    label: `${speedMph} mph · ${formatEtaDuration((distanceMiles / speedMph) * 60)}`,
+  }))
+}
+
+function describeTrackHeading(
+  [startLon, startLat]: [number, number],
+  [endLon, endLat]: [number, number],
+) {
+  const startLatRad = (startLat * Math.PI) / 180
+  const endLatRad = (endLat * Math.PI) / 180
+  const deltaLonRad = ((endLon - startLon) * Math.PI) / 180
+  const y = Math.sin(deltaLonRad) * Math.cos(endLatRad)
+  const x =
+    Math.cos(startLatRad) * Math.sin(endLatRad) -
+    Math.sin(startLatRad) * Math.cos(endLatRad) * Math.cos(deltaLonRad)
+  const bearing = (Math.atan2(y, x) * 180) / Math.PI
+  const normalizedBearing = (bearing + 360) % 360
+
+  return {
+    bearing: normalizedBearing,
+    bearingLabel: `${Math.round(normalizedBearing)}°`,
+    cardinal: formatCardinalDirection(normalizedBearing),
+  }
+}
+
+function formatCardinalDirection(bearing: number) {
+  const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+  const index = Math.round(bearing / 22.5) % 16
+  return directions[index]
 }
 
 async function playAudibleAlertTone(tone: 'warning' | 'watch') {
