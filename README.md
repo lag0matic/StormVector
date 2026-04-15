@@ -1,54 +1,70 @@
 # StormVector
 
-A desktop-first U.S. weather workstation focused on:
+StormVector is a desktop-first U.S. weather workstation for live monitoring.
 
-- Live radar
+It is built for practical situational awareness, with a map-first workflow and a focus on live weather monitoring rather than deep forecast-model analysis.
+
+## What it does
+
+- Regional and local radar
 - Radar playback
-- GOES satellite imagery
-- NWS forecasts and alerts
-- SPC storm outlooks
-- Winter weather guidance
+- GOES satellite imagery with playback
+- Point-and-click NWS forecasts
+- NWS watches and warnings
+- SPC severe outlooks
+- WPC winter outlooks
+- Local storm reports
+- Camera overlays
+- Storm-track / ETA tool
+- Audible nearby alerting
+- YouTube-filtered chaser overlay
 
-## Current state
+## Status
 
-This repository is now scaffolded as a React + TypeScript + Vite frontend with:
+This is a real working app, but it is still an early personal project.
 
-- A map-first application shell
-- A responsive forecast and hazard layout
-- MapLibre integrated and ready for live layers
-- A simple weather domain model we can connect to NOAA services next
+It was very much vibe coded with the help of OpenAI Codex, and I am not a professional software developer. Bugs, rough edges, odd UI behavior, and incomplete integrations may still exist.
 
-The current UI is now a functional weather workstation scaffold with live NOAA/NWS integrations and room for more operational tools.
+## Tech
 
-## Commands
+- React
+- TypeScript
+- Vite
+- MapLibre
+- Tauri
+
+## Running it
 
 ```bash
 npm install
 npm run dev
 npm run build
+npm run tauri:dev
+npm run tauri:build
 ```
 
-## Recommended next steps
+## Packaged app
 
-1. Install Rust and the Tauri prerequisites for Windows
-2. Add Tauri so this frontend runs as a desktop app shell
-3. Implement the first NOAA adapters:
-   - NWS point forecast
-   - Alerts
-   - Radar layer metadata
-4. Replace the mock weather model with live data
-5. Add a shared timeline model for radar and GOES playback
+Windows builds are produced through Tauri. Current release packaging generates:
 
-## Notes on data sources
+- `src-tauri/target/release/bundle/nsis/StormVector_0.1.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/msi/StormVector_0.1.0_x64_en-US.msi`
 
-Recommended first-party sources:
+## Data sources
 
-- NWS API for forecasts and alerts
-- NWS radar services for live radar products
-- SPC outlook layers for severe weather risk
-- WPC winter products for winter impacts
-- GOES imagery from NOAA satellite sources
+StormVector currently uses public weather and transportation data sources including:
 
-## Tauri note
+- NOAA / NWS
+- NOAA SPC
+- NOAA WPC
+- NOAA nowCOAST
+- Iowa State Mesonet
+- OHGO
+- INDOT TrafficWise
+- Spotter Network feeds
 
-Rust is not installed on this machine yet, so the repository is currently scaffolded as a web frontend that is ready to be wrapped by Tauri once the Rust toolchain is available.
+## Open source
+
+StormVector is open source under the GNU General Public License v3.0.
+
+See [LICENSE](LICENSE).
