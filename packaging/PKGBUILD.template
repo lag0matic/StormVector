@@ -1,0 +1,21 @@
+# Maintainer: lag0matic
+
+pkgname=stormvector
+pkgver=1.2.0
+pkgrel=1
+pkgdesc="StormVector weather workstation"
+arch=('x86_64' 'aarch64')
+url="https://github.com/lag0matic/StormVector"
+license=('GPL3')
+depends=('cairo' 'desktop-file-utils' 'gdk-pixbuf2' 'glib2' 'gtk3' 'hicolor-icon-theme' 'libsoup' 'pango' 'webkit2gtk-4.1')
+options=('!strip' '!emptydirs')
+
+# Replace these once Linux release assets exist on GitHub.
+source_x86_64=("${url}/releases/download/v${pkgver}/stormvector_${pkgver}_amd64.deb")
+source_aarch64=("${url}/releases/download/v${pkgver}/stormvector_${pkgver}_arm64.deb")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  bsdtar -xf data.tar.gz -C "${pkgdir}"
+}

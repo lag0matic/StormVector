@@ -17,7 +17,6 @@ It is built for practical situational awareness, with a map-first workflow and a
 - Camera overlays
 - Storm-track / ETA tool
 - Audible nearby alerting
-- YouTube-filtered chaser overlay
 
 ## Status
 
@@ -43,12 +42,59 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
+## Linux support
+
+StormVector should stay in this same repo for Linux. It is already a Tauri desktop app, so Linux is a platform target, not a separate fork.
+
+### Arch prerequisites
+
+On Arch-based systems, install the Tauri Linux prerequisites:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed \
+  webkit2gtk-4.1 \
+  base-devel \
+  curl \
+  wget \
+  file \
+  openssl \
+  appmenu-gtk-module \
+  libappindicator-gtk3 \
+  librsvg \
+  xdotool
+```
+
+You will also need:
+
+```bash
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+```
+
+and a current Node.js LTS install.
+
+### Arch build flow
+
+```bash
+npm install
+npm run tauri:dev
+npm run tauri:build
+```
+
+When built on Linux, Tauri can generate Linux bundles such as:
+
+- AppImage
+- `.deb`
+- `.rpm`
+
+See [docs/linux-arch.md](docs/linux-arch.md) for a more practical Arch-focused setup note.
+
 ## Packaged app
 
 Windows builds are produced through Tauri. Current release packaging generates:
 
-- `src-tauri/target/release/bundle/nsis/StormVector_0.1.0_x64-setup.exe`
-- `src-tauri/target/release/bundle/msi/StormVector_0.1.0_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/StormVector_1.2.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/msi/StormVector_1.2.0_x64_en-US.msi`
 
 ## Data sources
 
@@ -61,7 +107,6 @@ StormVector currently uses public weather and transportation data sources includ
 - Iowa State Mesonet
 - OHGO
 - INDOT TrafficWise
-- Spotter Network feeds
 
 ## Open source
 
