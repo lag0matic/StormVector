@@ -66,6 +66,74 @@ const radarViews = [
   { id: 'regional', label: 'Regional' },
   { id: 'local', label: 'Local' },
 ] as const
+let sharedAlertAudioContext: AudioContext | null = null
+let sharedAlertAudioUnlockInstalled = false
+let sharedAlertAudioUnlockInFlight: Promise<void> | null = null
+
+function getAlertAudioContextClass() {
+  return (
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext ??
+    null
+  )
+}
+
+function getSharedAlertAudioContext() {
+  const AudioContextClass = getAlertAudioContextClass()
+
+  if (!AudioContextClass) {
+    return null
+  }
+
+  if (!sharedAlertAudioContext || sharedAlertAudioContext.state === 'closed') {
+    sharedAlertAudioContext = new AudioContextClass()
+  }
+
+  return sharedAlertAudioContext
+}
+
+async function ensureAlertAudioReady() {
+  if (sharedAlertAudioUnlockInFlight) {
+    return sharedAlertAudioUnlockInFlight
+  }
+
+  sharedAlertAudioUnlockInFlight = (async () => {
+    const audioContext = getSharedAlertAudioContext()
+
+    if (!audioContext) {
+      return
+    }
+
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume()
+    }
+  })()
+
+  try {
+    await sharedAlertAudioUnlockInFlight
+  } finally {
+    sharedAlertAudioUnlockInFlight = null
+  }
+}
+
+function installAlertAudioUnlock() {
+  if (sharedAlertAudioUnlockInstalled || typeof window === 'undefined') {
+    return
+  }
+
+  sharedAlertAudioUnlockInstalled = true
+
+  const unlock = () => {
+    void ensureAlertAudioReady()
+  }
+
+  const options: AddEventListenerOptions = { once: true, passive: true }
+  window.addEventListener('pointerdown', unlock, options)
+  window.addEventListener('keydown', unlock, options)
+  window.addEventListener('touchstart', unlock, options)
+}
+
 type SavedLocation = {
   label: string
   coordinates: [number, number]
@@ -132,6 +200,10 @@ const defaultAudibleAlertSettings: AudibleAlertSettings = {
 }
 
 function App() {
+  useEffect(() => {
+    installAlertAudioUnlock()
+  }, [])
+
   const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
     readStoredJson<ThemeMode>(storageKeys.themeMode, 'light'),
   )
@@ -2578,21 +2650,14 @@ function formatCardinalDirection(bearing: number) {
 }
 
 async function playAudibleAlertTone(tone: 'warning' | 'watch') {
-  const AudioContextClass =
-    window.AudioContext ??
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext
+  const audioContext = getSharedAlertAudioContext()
 
-  if (!AudioContextClass) {
+  if (!audioContext) {
     return
   }
 
-  const audioContext = new AudioContextClass()
-
   try {
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume()
-    }
+    await ensureAlertAudioReady()
 
     const now = audioContext.currentTime
     const notes =
@@ -2626,14 +2691,7 @@ async function playAudibleAlertTone(tone: 'warning' | 'watch') {
       oscillator.start(startTime)
       oscillator.stop(endTime)
     })
-
-    const totalDuration = Math.max(...notes.map((note) => note.delay + note.duration))
-    window.setTimeout(() => {
-      void audioContext.close()
-    }, Math.ceil((totalDuration + 0.2) * 1000))
-  } catch {
-    void audioContext.close()
-  }
+  } catch {}
 }
 
 const OpacitySlider = memo(function OpacitySlider({
