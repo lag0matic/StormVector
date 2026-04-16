@@ -11,7 +11,6 @@ import { useRadarSites } from './hooks/useRadarSites'
 import { useRegionalRadarTimeline } from './hooks/useRegionalRadarTimeline'
 import { useSatelliteTimeline } from './hooks/useSatelliteTimeline'
 import { useSpcOutlookPolygons } from './hooks/useSpcOutlookPolygons'
-import { useSpotterNetworkStreamers } from './hooks/useSpotterNetworkStreamers'
 import { useStormTrackPlaces } from './hooks/useStormTrackPlaces'
 import { useWinterOutlookPolygons } from './hooks/useWinterOutlookPolygons'
 import { geocodeLocation } from './services/geocode'
@@ -206,7 +205,6 @@ function App() {
   const [followLatestSatelliteFrame, setFollowLatestSatelliteFrame] = useState(true)
   const [showCameras, setShowCameras] = useState(false)
   const [showSpotterReports, setShowSpotterReports] = useState(false)
-  const [showChasers, setShowChasers] = useState(false)
   const [playbackWindowMinutes, setPlaybackWindowMinutes] = useState<30 | 60 | 120>(30)
   const [playbackSpeed, setPlaybackSpeed] =
     useState<(typeof playbackSpeeds)[number]['id']>('normal')
@@ -277,10 +275,6 @@ function App() {
     feeds: cameraFeeds,
     loading: cameraFeedsLoading,
   } = useCameraFeeds(showCameras, customCameraFeeds)
-  const {
-    features: spotterNetworkFeatures,
-    loading: spotterNetworkLoading,
-  } = useSpotterNetworkStreamers(showChasers)
   const {
     features: spcFeatures,
   } = useSpcOutlookPolygons(selectedSpcDay)
@@ -594,12 +588,6 @@ function App() {
           : `${visibleCameraFeeds.length} cameras`
       }
 
-      if (showChasers) {
-        return spotterNetworkLoading
-          ? 'Loading chasers...'
-          : `${spotterNetworkFeatures.length} chasers`
-      }
-
       if (showSpotterReports) {
         return localStormReportsLoading
           ? 'Loading recent reports...'
@@ -637,10 +625,7 @@ function App() {
     selectedWinterDay,
     selectedWinterProduct,
     showCameras,
-    showChasers,
     showSpotterReports,
-    spotterNetworkFeatures.length,
-    spotterNetworkLoading,
     visibleAlertFeatures.length,
     visibleCameraFeeds.length,
   ])
@@ -1691,10 +1676,8 @@ function App() {
               alertTypeFilters={alertTypeFilters}
               localStormReports={recentLocalStormReports}
               cameraFeeds={visibleCameraFeeds}
-              spotterNetworkFeatures={spotterNetworkFeatures}
               showCameras={showCameras}
               showSpotterReports={showSpotterReports}
-              showChasers={showChasers}
               spcFeatures={spcFeatures}
               winterFeatures={winterFeatures}
               activeForecastOverlay={activeForecastOverlay}
@@ -1772,13 +1755,6 @@ function App() {
                       onClick={() => setShowCameras((current) => !current)}
                     >
                       Cameras{visibleCameraFeeds.length > 0 ? ` (${visibleCameraFeeds.length})` : ''}
-                    </button>
-                    <button
-                      type="button"
-                      className={showChasers ? 'chip active' : 'chip'}
-                      onClick={() => setShowChasers((current) => !current)}
-                    >
-                      Chasers{spotterNetworkFeatures.length > 0 ? ` (${spotterNetworkFeatures.length})` : ''}
                     </button>
                     <button
                       type="button"
@@ -2299,9 +2275,7 @@ function App() {
                               ? 'Selected SPC area'
                               : selectedHazard.source === 'winter'
                                 ? 'Selected winter area'
-                                : selectedHazard.source === 'spotter'
-                                  ? 'Selected chaser'
-                                  : 'Selected report'}
+                                : 'Selected report'}
                       </p>
                         <strong>{selectedHazard.title}</strong>
                       </div>

@@ -15,7 +15,6 @@ import type {
   CameraSelection,
   HazardSelection,
   LocalStormReportFeature,
-  SpotterNetworkFeature,
   SpcOutlookFeature,
   WinterOutlookFeature,
 } from '../types/weather'
@@ -49,10 +48,8 @@ type MapCanvasProps = {
   }
   localStormReports: LocalStormReportFeature[]
   cameraFeeds: CameraFeed[]
-  spotterNetworkFeatures: SpotterNetworkFeature[]
   showCameras: boolean
   showSpotterReports: boolean
-  showChasers: boolean
   spcFeatures: SpcOutlookFeature[]
   winterFeatures: WinterOutlookFeature[]
   activeForecastOverlay: 'None' | 'SPC Storm Risk' | 'Winter'
@@ -151,10 +148,8 @@ export const MapCanvas = memo(function MapCanvas({
   alertTypeFilters,
   localStormReports,
   cameraFeeds,
-  spotterNetworkFeatures,
   showCameras,
   showSpotterReports,
-  showChasers,
   spcFeatures,
   winterFeatures = [],
   activeForecastOverlay,
@@ -2014,32 +2009,6 @@ export const MapCanvas = memo(function MapCanvas({
         : [],
     [activeForecastOverlay, activeLayer, liveViewport, winterFeatures],
   )
-  const projectedLocalStormReports = useMemo(
-    () =>
-      mapRef.current && liveViewport && activeLayer === 'Radar' && showSpotterReports
-        ? projectPointFeatures(mapRef.current, localStormReports, (feature) => feature.coordinates)
-        : [],
-    [activeLayer, liveViewport, localStormReports, showSpotterReports],
-  )
-  const projectedCameraFeeds = useMemo(
-    () =>
-      mapRef.current && liveViewport && activeLayer === 'Radar' && showCameras
-        ? projectPointFeatures(mapRef.current, cameraFeeds, (feed) => feed.coordinates)
-        : [],
-    [activeLayer, cameraFeeds, liveViewport, showCameras],
-  )
-  const projectedSpotterNetworkFeatures = useMemo(
-    () =>
-      mapRef.current && liveViewport && activeLayer === 'Radar' && showChasers
-        ? projectPointFeatures(
-            mapRef.current,
-            spotterNetworkFeatures,
-            (feature) => feature.coordinates,
-          )
-        : [],
-    [activeLayer, liveViewport, showChasers, spotterNetworkFeatures],
-  )
-
   const forwardOverlayWheelToMap = (event: React.WheelEvent<SVGSVGElement>) => {
     event.preventDefault()
 
@@ -2194,85 +2163,6 @@ export const MapCanvas = memo(function MapCanvas({
           ))}
         </svg>
       ) : null}
-      {projectedLocalStormReports.length > 0 ? (
-        <div className="map-point-overlay">
-          {projectedLocalStormReports.map(({ feature, point }) => (
-            <button
-              key={feature.id}
-              type="button"
-              className="map-point-marker report"
-              style={{
-                left: `${point.x}px`,
-                top: `${point.y}px`,
-                backgroundColor: feature.fillColor,
-                borderColor: feature.strokeColor,
-                width:
-                  feature.reportCategory === 'tornado'
-                    ? '16px'
-                    : feature.reportCategory === 'hail' || feature.reportCategory === 'wind'
-                      ? '14px'
-                      : '12px',
-                height:
-                  feature.reportCategory === 'tornado'
-                    ? '16px'
-                    : feature.reportCategory === 'hail' || feature.reportCategory === 'wind'
-                      ? '14px'
-                      : '12px',
-              }}
-              onClick={() => onHazardSelectRef.current(buildLocalStormReportSelection(feature))}
-              title={`${feature.eventType} - ${feature.city}, ${feature.state}`}
-              aria-label={`${feature.eventType} report near ${feature.city}, ${feature.state}`}
-            />
-          ))}
-        </div>
-      ) : null}
-      {projectedCameraFeeds.length > 0 ? (
-        <div className="map-point-overlay">
-          {projectedCameraFeeds.map(({ feature, point }) => (
-            <button
-              key={feature.id}
-              type="button"
-              className="map-point-marker camera"
-              style={{
-                left: `${point.x}px`,
-                top: `${point.y}px`,
-              }}
-              onClick={() =>
-                onCameraSelectRef.current({
-                  title: feature.name,
-                  provider: feature.provider,
-                  summary: feature.description || 'Live camera feed available.',
-                  pageUrl: feature.pageUrl,
-                  imageUrl: feature.imageUrl,
-                  embedUrl: feature.embedUrl,
-                })
-              }
-              title={feature.name}
-              aria-label={`Camera: ${feature.name}`}
-            />
-          ))}
-        </div>
-      ) : null}
-      {projectedSpotterNetworkFeatures.length > 0 ? (
-        <div className="map-point-overlay">
-          {projectedSpotterNetworkFeatures.map(({ feature, point }) => (
-            <button
-              key={feature.id}
-              type="button"
-              className="map-point-marker chaser"
-              style={{
-                left: `${point.x}px`,
-                top: `${point.y}px`,
-              }}
-              onClick={() =>
-                onHazardSelectRef.current(buildSpotterNetworkSelection(feature))
-              }
-              title={`${feature.label} - ${feature.heading}`}
-              aria-label={`Chaser: ${feature.label}`}
-            />
-          ))}
-        </div>
-      ) : null}
       <div className="storm-track-overlay">
         {projectedTrackLabels.map((item) => (
           <div
@@ -2332,25 +2222,6 @@ function formatIsoTimestamp(value: string) {
     minute: '2-digit',
     timeZoneName: 'short',
   })
-}
-
-function formatReportAge(ageMinutes: number) {
-  if (ageMinutes <= 1) {
-    return 'just now'
-  }
-
-  if (ageMinutes < 60) {
-    return `${ageMinutes} min ago`
-  }
-
-  const hours = Math.floor(ageMinutes / 60)
-  const minutes = ageMinutes % 60
-
-  if (minutes === 0) {
-    return `${hours}h ago`
-  }
-
-  return `${hours}h ${minutes}m ago`
 }
 
 function buildAlertNarrative(description: string, instruction: string) {
@@ -2508,30 +2379,7 @@ function renderBufferedRasterFrame(
   )
 }
 
-function buildLocalStormReportSelection(
-  report: LocalStormReportFeature,
-): HazardSelection {
-  return {
-    source: 'lsr',
-    title: report.eventType,
-    subtitle: `${report.city || 'Unknown location'}, ${report.state}`,
-    summary: report.remark || 'No report remark available.',
-    detailLines: [
-      `Reported: ${formatCompactTimestamp(report.valid)}`,
-      ...(report.ageMinutes !== null ? [`Age: ${formatReportAge(report.ageMinutes)}`] : []),
-      `Source: ${report.source || 'Unknown'}`,
-      ...(report.magnitude && report.magnitude !== 'None'
-        ? [
-            `Magnitude: ${report.magnitude}${
-              report.qualifier ? ` (${report.qualifier})` : ''
-            }`,
-          ]
-        : []),
-      `County: ${report.county || 'Unknown'}`,
-    ],
-  }
-}
-
+/*
 function buildSpotterNetworkSelection(
   feature: SpotterNetworkFeature,
 ): HazardSelection {
@@ -2550,6 +2398,7 @@ function buildSpotterNetworkSelection(
   }
 }
 
+*/
 function addRadarSiteIcon(map: maplibregl.Map) {
   if (map.hasImage(radarSiteIconId)) {
     return
@@ -2927,32 +2776,6 @@ function projectRingPath(
       return `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
     })
     .join(' ') + ' Z'
-}
-
-function projectPointFeatures<T>(
-  map: maplibregl.Map,
-  features: T[],
-  getCoordinates: (feature: T) => [number, number],
-) {
-  const container = map.getContainer()
-  const width = container.clientWidth
-  const height = container.clientHeight
-  const buffer = 32
-
-  return features
-    .map((feature) => ({
-      feature,
-      point: map.project(getCoordinates(feature)),
-    }))
-    .filter(
-      ({ point }) =>
-        Number.isFinite(point.x) &&
-        Number.isFinite(point.y) &&
-        point.x >= -buffer &&
-        point.x <= width + buffer &&
-        point.y >= -buffer &&
-        point.y <= height + buffer,
-    )
 }
 
 function setLayerVisibility(

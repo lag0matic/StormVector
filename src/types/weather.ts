@@ -87,7 +87,7 @@ export type WinterOutlookFeature = {
 }
 
 export type HazardSelection = {
-  source: 'alerts' | 'spc' | 'winter' | 'lsr' | 'spotter'
+  source: 'alerts' | 'spc' | 'winter' | 'lsr'
   title: string
   subtitle: string
   summary: string

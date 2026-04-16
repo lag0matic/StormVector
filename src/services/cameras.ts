@@ -1,7 +1,7 @@
 export type CameraFeed = {
   id: string
   name: string
-  provider: 'custom' | 'ohgo' | 'iem' | 'indot'
+  provider: 'custom' | 'ohgo' | 'indot'
   state?: string
   coordinates: [number, number]
   pageUrl?: string
@@ -12,26 +12,6 @@ export type CameraFeed = {
 
 export type CameraFeedInput = Omit<CameraFeed, 'provider'> & {
   provider?: CameraFeed['provider']
-}
-
-type IemWebcamFeatureCollection = {
-  features?: Array<{
-    id?: string
-    properties?: {
-      cid?: string
-      name?: string
-      county?: string | null
-      state?: string | null
-      network?: string | null
-      imgurl?: string | null
-      url?: string | null
-      valid?: string | null
-    }
-    geometry?: {
-      type?: string
-      coordinates?: [number, number]
-    }
-  }>
 }
 
 type OhgoCameraCollection = {
@@ -79,7 +59,6 @@ type IndotMapFeaturesResponse = {
   }
 }
 
-const iemNetworks = ['KCCI', 'KCRG', 'KELO', 'MCFC', 'IDOT'] as const
 const ohgoApiKey = '12d06af6-19a6-46bc-ae85-25613c8914f4'
 const indotGraphqlUrl = 'https://511in.org/api/graphql'
 const indotPageUrl = 'https://511in.org/'
@@ -100,13 +79,11 @@ const builtInCustomCameraFeeds: CameraFeed[] = [
 export async function fetchCameraFeeds(
   customCameraFeeds: CameraFeedInput[] = [],
 ): Promise<CameraFeed[]> {
-  const [iemResult, ohgoResult, indotResult] = await Promise.allSettled([
-    fetchIemCameraFeeds(),
+  const [ohgoResult, indotResult] = await Promise.allSettled([
     fetchOhgoCameraFeeds(),
     fetchIndotCameraFeeds(),
   ])
 
-  const iemFeeds = iemResult.status === 'fulfilled' ? iemResult.value : []
   const ohgoFeeds = ohgoResult.status === 'fulfilled' ? ohgoResult.value : []
   const indotFeeds = indotResult.status === 'fulfilled' ? indotResult.value : []
   const normalizedCustomFeeds = customCameraFeeds.map(normalizeCustomCameraFeed)
@@ -116,62 +93,7 @@ export async function fetchCameraFeeds(
     ...normalizedCustomFeeds,
     ...indotFeeds,
     ...ohgoFeeds,
-    ...iemFeeds,
   ])
-}
-
-async function fetchIemCameraFeeds(): Promise<CameraFeed[]> {
-  const responses = await Promise.all(
-    iemNetworks.map(async (network) => {
-      const response = await fetch(
-        `https://mesonet.agron.iastate.edu/geojson/webcam.geojson?network=${encodeURIComponent(
-          network,
-        )}`,
-      )
-
-      if (!response.ok) {
-        throw new Error(`IEM webcam request failed for ${network}.`)
-      }
-
-      return (await response.json()) as IemWebcamFeatureCollection
-    }),
-  )
-
-  return responses.flatMap((collection) =>
-    (collection.features ?? [])
-      .filter(
-        (feature) =>
-          feature.geometry?.type === 'Point' &&
-          Array.isArray(feature.geometry.coordinates) &&
-          feature.geometry.coordinates.length === 2 &&
-          !String(feature.properties?.cid ?? '').endsWith('-000'),
-      )
-      .map((feature) => {
-        const coordinates = feature.geometry?.coordinates as [number, number]
-        const properties = feature.properties ?? {}
-        const network = properties.network ?? 'IEM'
-        const county = properties.county ? `${properties.county} County, ` : ''
-        const state = properties.state ?? ''
-        const summaryParts = [
-          `${network} webcam`,
-          county || state ? `${county}${state}`.trim().replace(/,$/, '') : '',
-          properties.valid ? `Updated ${properties.valid}` : '',
-        ].filter(Boolean)
-
-        return {
-          id: String(
-            feature.id ?? properties.cid ?? `${network}-${coordinates.join(',')}`,
-          ),
-          name: String(properties.name ?? properties.cid ?? 'IEM Webcam'),
-          provider: 'iem' as const,
-          state: properties.state ?? undefined,
-          coordinates,
-          pageUrl: properties.imgurl ?? properties.url ?? undefined,
-          imageUrl: properties.imgurl ?? properties.url ?? undefined,
-          description: summaryParts.join(' | '),
-        } satisfies CameraFeed
-      }),
-  )
 }
 
 async function fetchOhgoCameraFeeds(): Promise<CameraFeed[]> {
