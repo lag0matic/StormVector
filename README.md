@@ -14,7 +14,6 @@ It is built for practical situational awareness, with a map-first workflow and a
 - SPC severe outlooks
 - WPC winter outlooks
 - Local storm reports
-- Camera overlays
 - Storm-track / ETA tool
 - Audible nearby alerting
 
@@ -93,8 +92,8 @@ See [docs/linux-arch.md](docs/linux-arch.md) for a more practical Arch-focused s
 
 Windows builds are produced through Tauri. Current release packaging generates:
 
-- `src-tauri/target/release/bundle/nsis/StormVector_1.2.0_x64-setup.exe`
-- `src-tauri/target/release/bundle/msi/StormVector_1.2.0_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/StormVector_1.3.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/msi/StormVector_1.3.0_x64_en-US.msi`
 
 ## Data sources
 
@@ -105,8 +104,6 @@ StormVector currently uses public weather and transportation data sources includ
 - NOAA WPC
 - NOAA nowCOAST
 - Iowa State Mesonet
-- OHGO
-- INDOT TrafficWise
 
 ## Open source
 
