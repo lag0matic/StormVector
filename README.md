@@ -4,9 +4,12 @@ StormVector is a desktop-first U.S. weather workstation for live monitoring.
 
 It is built for practical situational awareness, with a map-first workflow and a focus on live weather monitoring rather than deep forecast-model analysis.
 
+Current stable release: `v1.3.0`
+
 ## What it does
 
 - Regional and local radar
+- Local velocity radar
 - Radar playback
 - GOES satellite imagery with playback
 - Point-and-click NWS forecasts
@@ -15,6 +18,7 @@ It is built for practical situational awareness, with a map-first workflow and a
 - WPC winter outlooks
 - Local storm reports
 - Storm-track / ETA tool
+- Saved home / favorite locations
 - Audible nearby alerting
 
 ## Status
@@ -97,12 +101,11 @@ Windows builds are produced through Tauri. Current release packaging generates:
 
 ## Data sources
 
-StormVector currently uses public weather and transportation data sources including:
+StormVector currently uses public weather data sources including:
 
 - NOAA / NWS
 - NOAA SPC
 - NOAA WPC
-- NOAA nowCOAST
 - Iowa State Mesonet
 
 ## Open source
