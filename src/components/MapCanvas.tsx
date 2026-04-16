@@ -264,8 +264,6 @@ export const MapCanvas = memo(function MapCanvas({
       attributionControl: false,
     })
 
-    ;(map as maplibregl.Map & { repaint?: boolean }).repaint = true
-
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
     map.addControl(
       new maplibregl.AttributionControl({
@@ -2875,26 +2873,7 @@ function setFilterSafe(
 
 function nudgeMapRender(map: maplibregl.Map) {
   try {
-    const center = map.getCenter()
-    map.jumpTo({
-      center,
-      zoom: map.getZoom(),
-      bearing: map.getBearing(),
-      pitch: map.getPitch(),
-    })
-    window.requestAnimationFrame(() => {
-      try {
-        const nextCenter = map.getCenter()
-        map.jumpTo({
-          center: nextCenter,
-          zoom: map.getZoom(),
-          bearing: map.getBearing(),
-          pitch: map.getPitch(),
-        })
-      } catch {
-        return
-      }
-    })
+    map.triggerRepaint()
   } catch {
     return
   }
