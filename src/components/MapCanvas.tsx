@@ -424,6 +424,13 @@ export const MapCanvas = memo(function MapCanvas({
         return
       }
 
+      if (
+        activeLayerRef.current !== 'Forecast' ||
+        activeForecastOverlayRef.current === 'None'
+      ) {
+        return
+      }
+
       const snapshot = readViewportSnapshot(map)
 
       if (snapshot) {
@@ -1270,7 +1277,45 @@ export const MapCanvas = memo(function MapCanvas({
       return
     }
 
+    if (!trackToolEnabled || !stormTrackOrigin || !stormTrackEnd) {
+      setProjectedTrackLabels([])
+      return
+    }
+
+    let animationFrame: number | null = null
+
     const syncProjectedLabels = () => {
+      if (animationFrame !== null) {
+        return
+      }
+
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = null
+        const activeOrigin = stormTrackOriginRef.current
+        const activeEnd = stormTrackEndRef.current
+        const activeSpeed = stormTrackSpeedRef.current
+
+        if (
+          !trackToolEnabledRef.current ||
+          !activeOrigin ||
+          !activeEnd ||
+          !map.isStyleLoaded()
+        ) {
+          setProjectedTrackLabels([])
+          return
+        }
+
+        setProjectedTrackLabels(
+          buildProjectedTrackLabels(
+            map,
+            activeOrigin,
+            buildImmediateStormTrackMarkers(activeOrigin, activeEnd, activeSpeed),
+          ),
+        )
+      })
+    }
+
+    const syncProjectedLabelsImmediately = () => {
       const activeOrigin = stormTrackOriginRef.current
       const activeEnd = stormTrackEndRef.current
       const activeSpeed = stormTrackSpeedRef.current
@@ -1294,17 +1339,20 @@ export const MapCanvas = memo(function MapCanvas({
       )
     }
 
-    syncProjectedLabels()
+    syncProjectedLabelsImmediately()
     map.on('move', syncProjectedLabels)
     map.on('zoom', syncProjectedLabels)
     map.on('resize', syncProjectedLabels)
 
     return () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame)
+      }
       map.off('move', syncProjectedLabels)
       map.off('zoom', syncProjectedLabels)
       map.off('resize', syncProjectedLabels)
     }
-  }, [])
+  }, [stormTrackEnd, stormTrackOrigin, trackToolEnabled])
 
   useEffect(() => {
     const map = mapRef.current
