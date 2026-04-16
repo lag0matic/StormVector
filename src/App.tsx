@@ -1484,9 +1484,6 @@ function App() {
               spcFeatures={spcFeatures}
               winterFeatures={winterFeatures}
               activeForecastOverlay={activeForecastOverlay}
-              selectedSpcDay={selectedSpcDay}
-              selectedWinterDay={selectedWinterDay}
-              selectedWinterProduct={selectedWinterProduct}
               trackToolEnabled={trackToolEnabled}
               stormTrackOrigin={stormTrackOrigin}
               stormTrackEnd={stormTrackEnd}

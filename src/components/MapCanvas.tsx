@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
 import maplibregl from 'maplibre-gl'
 import {
   findNearestRadarSiteFromList,
@@ -49,9 +49,6 @@ type MapCanvasProps = {
   spcFeatures: SpcOutlookFeature[]
   winterFeatures: WinterOutlookFeature[]
   activeForecastOverlay: 'None' | 'SPC Storm Risk' | 'Winter'
-  selectedSpcDay: 1 | 2 | 3
-  selectedWinterDay: 1 | 2 | 3 | 4
-  selectedWinterProduct: 'snowfall' | 'freezingRain'
   trackToolEnabled: boolean
   stormTrackOrigin: [number, number] | null
   stormTrackEnd: [number, number] | null
@@ -104,6 +101,12 @@ const radarSiteIconId = 'radar-site-icon'
 const alertPolygonsSourceId = 'nws-alert-polygons'
 const alertPolygonsFillLayerId = 'nws-alert-polygons-fill'
 const alertPolygonsLineLayerId = 'nws-alert-polygons-line'
+const spcPolygonsSourceId = 'spc-outlook-polygons'
+const spcPolygonsFillLayerId = 'spc-outlook-polygons-fill'
+const spcPolygonsLineLayerId = 'spc-outlook-polygons-line'
+const winterPolygonsSourceId = 'winter-outlook-polygons'
+const winterPolygonsFillLayerId = 'winter-outlook-polygons-fill'
+const winterPolygonsLineLayerId = 'winter-outlook-polygons-line'
 const localStormReportsSourceId = 'local-storm-reports'
 const localStormReportsLayerId = 'local-storm-reports-layer'
 const stormTrackSourceId = 'storm-track-source'
@@ -138,9 +141,6 @@ export const MapCanvas = memo(function MapCanvas({
   spcFeatures,
   winterFeatures = [],
   activeForecastOverlay,
-  selectedSpcDay,
-  selectedWinterDay,
-  selectedWinterProduct,
   trackToolEnabled,
   stormTrackOrigin,
   stormTrackEnd,
@@ -152,7 +152,6 @@ export const MapCanvas = memo(function MapCanvas({
   onStormTrackOriginSet,
   onStormTrackEndSet,
 }: MapCanvasProps) {
-  const [liveViewport, setLiveViewport] = useState<ViewportSnapshot | null>(null)
   const [requestViewport, setRequestViewport] = useState<ViewportSnapshot | null>(
     null,
   )
@@ -164,7 +163,6 @@ export const MapCanvas = memo(function MapCanvas({
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const radarPopupRef = useRef<maplibregl.Popup | null>(null)
   const alertPopupRef = useRef<maplibregl.Popup | null>(null)
-  const spcPopupRef = useRef<maplibregl.Popup | null>(null)
   const stormTrackLabelMarkersRef = useRef<maplibregl.Marker[]>([])
   const pointerDownPointRef = useRef<{ x: number; y: number } | null>(null)
   const onMapClickRef = useRef(onMapClick)
@@ -403,51 +401,12 @@ export const MapCanvas = memo(function MapCanvas({
       offset: 16,
       className: 'alert-popup',
     })
-    spcPopupRef.current = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: true,
-      offset: 16,
-      className: 'alert-popup',
-    })
-
     markerRef.current = new maplibregl.Marker({
       color: '#184f6b',
       scale: 1.1,
     })
       .setLngLat(center)
       .addTo(map)
-
-    let viewportAnimationFrame: number | null = null
-
-    const syncLiveViewport = () => {
-      if (!map.isStyleLoaded()) {
-        return
-      }
-
-      if (
-        activeLayerRef.current !== 'Forecast' ||
-        activeForecastOverlayRef.current === 'None'
-      ) {
-        return
-      }
-
-      const snapshot = readViewportSnapshot(map)
-
-      if (snapshot) {
-        setLiveViewport(snapshot)
-      }
-    }
-
-    const scheduleLiveViewportSync = () => {
-      if (viewportAnimationFrame !== null) {
-        return
-      }
-
-      viewportAnimationFrame = window.requestAnimationFrame(() => {
-        viewportAnimationFrame = null
-        syncLiveViewport()
-      })
-    }
 
     const syncRequestViewport = () => {
       if (!map.isStyleLoaded()) {
@@ -457,13 +416,11 @@ export const MapCanvas = memo(function MapCanvas({
       const snapshot = readViewportSnapshot(map)
 
       if (snapshot) {
-        setLiveViewport(snapshot)
         setRequestViewport(snapshot)
       }
     }
 
     map.on('load', syncRequestViewport)
-    map.on('move', scheduleLiveViewportSync)
     map.on('moveend', syncRequestViewport)
     map.on('resize', syncRequestViewport)
     window.requestAnimationFrame(syncRequestViewport)
@@ -471,22 +428,15 @@ export const MapCanvas = memo(function MapCanvas({
     mapRef.current = map
 
     return () => {
-      if (viewportAnimationFrame !== null) {
-        window.cancelAnimationFrame(viewportAnimationFrame)
-      }
       map.off('load', syncRequestViewport)
-      map.off('move', scheduleLiveViewportSync)
       map.off('moveend', syncRequestViewport)
       map.off('resize', syncRequestViewport)
       radarPopupRef.current?.remove()
       radarPopupRef.current = null
       alertPopupRef.current?.remove()
       alertPopupRef.current = null
-      spcPopupRef.current?.remove()
-      spcPopupRef.current = null
       markerRef.current?.remove()
       markerRef.current = null
-      setLiveViewport(null)
       setRequestViewport(null)
       setProjectedTrackLabels([])
       clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
@@ -799,6 +749,191 @@ export const MapCanvas = memo(function MapCanvas({
       return
     }
 
+    const collection: GeoJSON.FeatureCollection<
+      GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > = {
+      type: 'FeatureCollection',
+      features: spcFeatures.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          category: feature.category,
+          valid: feature.valid,
+          expire: feature.expire,
+          fillColor: feature.fillColor,
+          lineColor: feature.lineColor,
+        },
+        geometry: feature.geometry,
+      })),
+    }
+
+    const applySpcPolygons = () => {
+      if (!hasSourceSafe(map, spcPolygonsSourceId)) {
+        map.addSource(spcPolygonsSourceId, {
+          type: 'geojson',
+          data: collection,
+        })
+
+        const beforeLayerId = hasLayerSafe(map, alertPolygonsFillLayerId)
+          ? alertPolygonsFillLayerId
+          : undefined
+
+        map.addLayer(
+          {
+            id: spcPolygonsFillLayerId,
+            type: 'fill',
+            source: spcPolygonsSourceId,
+            layout: {
+              visibility: 'none',
+            },
+            paint: {
+              'fill-color': ['get', 'fillColor'],
+              'fill-opacity': polygonOpacity,
+            },
+          },
+          beforeLayerId,
+        )
+
+        map.addLayer(
+          {
+            id: spcPolygonsLineLayerId,
+            type: 'line',
+            source: spcPolygonsSourceId,
+            layout: {
+              visibility: 'none',
+            },
+            paint: {
+              'line-color': ['get', 'lineColor'],
+              'line-width': 2,
+              'line-opacity': 0.95,
+            },
+          },
+          beforeLayerId,
+        )
+      } else {
+        const source = getSourceSafe<maplibregl.GeoJSONSource>(map, spcPolygonsSourceId)
+        source?.setData(collection)
+      }
+
+      const isVisible =
+        activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk'
+      setLayerVisibility(map, spcPolygonsFillLayerId, isVisible)
+      setLayerVisibility(map, spcPolygonsLineLayerId, isVisible)
+      setPaintPropertySafe(map, spcPolygonsFillLayerId, 'fill-opacity', polygonOpacity)
+      nudgeMapRender(map)
+    }
+
+    if (map.isStyleLoaded()) {
+      applySpcPolygons()
+    } else {
+      map.once('load', applySpcPolygons)
+    }
+  }, [activeForecastOverlay, activeLayer, polygonOpacity, spcFeatures])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const collection: GeoJSON.FeatureCollection<
+      GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > = {
+      type: 'FeatureCollection',
+      features: winterFeatures.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          outlook: feature.outlook,
+          snippet: feature.snippet,
+          issueTime: feature.issueTime,
+          validTime: feature.validTime,
+          fillColor: feature.fillColor,
+          lineColor: feature.lineColor,
+        },
+        geometry: feature.geometry,
+      })),
+    }
+
+    const applyWinterPolygons = () => {
+      if (!hasSourceSafe(map, winterPolygonsSourceId)) {
+        map.addSource(winterPolygonsSourceId, {
+          type: 'geojson',
+          data: collection,
+        })
+
+        const beforeLayerId = hasLayerSafe(map, alertPolygonsFillLayerId)
+          ? alertPolygonsFillLayerId
+          : undefined
+
+        map.addLayer(
+          {
+            id: winterPolygonsFillLayerId,
+            type: 'fill',
+            source: winterPolygonsSourceId,
+            layout: {
+              visibility: 'none',
+            },
+            paint: {
+              'fill-color': ['get', 'fillColor'],
+              'fill-opacity': polygonOpacity,
+            },
+          },
+          beforeLayerId,
+        )
+
+        map.addLayer(
+          {
+            id: winterPolygonsLineLayerId,
+            type: 'line',
+            source: winterPolygonsSourceId,
+            layout: {
+              visibility: 'none',
+            },
+            paint: {
+              'line-color': ['get', 'lineColor'],
+              'line-width': 2,
+              'line-opacity': 0.92,
+            },
+          },
+          beforeLayerId,
+        )
+      } else {
+        const source = getSourceSafe<maplibregl.GeoJSONSource>(
+          map,
+          winterPolygonsSourceId,
+        )
+        source?.setData(collection)
+      }
+
+      const isVisible =
+        activeLayer === 'Forecast' && activeForecastOverlay === 'Winter'
+      setLayerVisibility(map, winterPolygonsFillLayerId, isVisible)
+      setLayerVisibility(map, winterPolygonsLineLayerId, isVisible)
+      setPaintPropertySafe(
+        map,
+        winterPolygonsFillLayerId,
+        'fill-opacity',
+        polygonOpacity,
+      )
+      nudgeMapRender(map)
+    }
+
+    if (map.isStyleLoaded()) {
+      applyWinterPolygons()
+    } else {
+      map.once('load', applyWinterPolygons)
+    }
+  }, [activeForecastOverlay, activeLayer, polygonOpacity, winterFeatures])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
     const collection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
       type: 'FeatureCollection',
       features: localStormReports.map((feature) => ({
@@ -982,6 +1117,26 @@ export const MapCanvas = memo(function MapCanvas({
       )
       setLayerVisibility(
         map,
+        spcPolygonsFillLayerId,
+        activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
+      )
+      setLayerVisibility(
+        map,
+        spcPolygonsLineLayerId,
+        activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
+      )
+      setLayerVisibility(
+        map,
+        winterPolygonsFillLayerId,
+        activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
+      )
+      setLayerVisibility(
+        map,
+        winterPolygonsLineLayerId,
+        activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
+      )
+      setLayerVisibility(
+        map,
         localStormReportsLayerId,
         activeLayer === 'Radar' && showSpotterReports,
       )
@@ -1024,6 +1179,12 @@ export const MapCanvas = memo(function MapCanvas({
       const layers = getExistingLayerIds(map, [
         alertPolygonsFillLayerId,
         alertPolygonsLineLayerId,
+        ...(activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk'
+          ? [spcPolygonsFillLayerId, spcPolygonsLineLayerId]
+          : []),
+        ...(activeLayer === 'Forecast' && activeForecastOverlay === 'Winter'
+          ? [winterPolygonsFillLayerId, winterPolygonsLineLayerId]
+          : []),
         ...(activeLayer === 'Radar' && showSpotterReports
           ? [localStormReportsLayerId]
           : []),
@@ -1155,6 +1316,79 @@ export const MapCanvas = memo(function MapCanvas({
       map.off('click', handleReportClick)
     }
   }, [showSpotterReports])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const handleForecastClick = (event: maplibregl.MapMouseEvent) => {
+      if (activeLayerRef.current !== 'Forecast') {
+        return
+      }
+
+      const alertLayers = getExistingLayerIds(map, [
+        alertPolygonsFillLayerId,
+        alertPolygonsLineLayerId,
+      ])
+      const clickedAlertFeatures =
+        alertLayers.length > 0
+          ? map.queryRenderedFeatures(event.point, {
+              layers: alertLayers,
+            })
+          : []
+
+      if (prioritizeAlertFeature(clickedAlertFeatures)) {
+        onHazardSelectRef.current(
+          buildAlertSelectionFromMapFeatures(clickedAlertFeatures),
+        )
+        return
+      }
+
+      if (activeForecastOverlayRef.current === 'SPC Storm Risk') {
+        const spcLayers = getExistingLayerIds(map, [
+          spcPolygonsFillLayerId,
+          spcPolygonsLineLayerId,
+        ])
+        const feature =
+          spcLayers.length > 0
+            ? map.queryRenderedFeatures(event.point, {
+                layers: spcLayers,
+              })[0]
+            : undefined
+
+        if (feature) {
+          onHazardSelectRef.current(buildSpcSelectionFromFeature(feature))
+        }
+        return
+      }
+
+      if (activeForecastOverlayRef.current === 'Winter') {
+        const winterLayers = getExistingLayerIds(map, [
+          winterPolygonsFillLayerId,
+          winterPolygonsLineLayerId,
+        ])
+        const feature =
+          winterLayers.length > 0
+            ? map.queryRenderedFeatures(event.point, {
+                layers: winterLayers,
+              })[0]
+            : undefined
+
+        if (feature) {
+          onHazardSelectRef.current(buildWinterSelectionFromFeature(feature))
+        }
+      }
+    }
+
+    map.on('click', handleForecastClick)
+
+    return () => {
+      map.off('click', handleForecastClick)
+    }
+  }, [])
 
   useEffect(() => {
     if (shouldRecenterMap) {
@@ -1589,51 +1823,6 @@ export const MapCanvas = memo(function MapCanvas({
     previousFrame: previousSatelliteFrame,
     promotePendingFrame: promotePendingSatelliteFrame,
   } = useBufferedRasterFrame(satelliteOverlayUrl, requestViewport)
-  const projectedSpcFeatures = useMemo(
-    () =>
-      mapRef.current &&
-      liveViewport &&
-      activeLayer === 'Forecast' &&
-      activeForecastOverlay === 'SPC Storm Risk'
-        ? projectPolygonFeatures(mapRef.current, spcFeatures)
-        : [],
-    [activeForecastOverlay, activeLayer, liveViewport, spcFeatures],
-  )
-  const projectedWinterFeatures = useMemo(
-    () =>
-      mapRef.current &&
-      liveViewport &&
-      activeLayer === 'Forecast' &&
-      activeForecastOverlay === 'Winter'
-        ? projectPolygonFeatures(mapRef.current, winterFeatures)
-        : [],
-    [activeForecastOverlay, activeLayer, liveViewport, winterFeatures],
-  )
-  const forwardOverlayWheelToMap = (event: React.WheelEvent<SVGSVGElement>) => {
-    event.preventDefault()
-
-    const canvas = mapRef.current?.getCanvas()
-
-    if (!canvas) {
-      return
-    }
-
-    canvas.dispatchEvent(
-      new WheelEvent('wheel', {
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        deltaMode: event.deltaMode,
-        clientX: event.clientX,
-        clientY: event.clientY,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-        altKey: event.altKey,
-        metaKey: event.metaKey,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
-  }
 
   return (
     <div className="map-surface">
@@ -1660,109 +1849,6 @@ export const MapCanvas = memo(function MapCanvas({
           />
         ) : null}
       </div>
-      {projectedSpcFeatures.length > 0 ? (
-        <svg
-          className="map-vector-overlay"
-          viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}
-          onWheel={forwardOverlayWheelToMap}
-        >
-          {projectedSpcFeatures.map(({ feature, path }) => (
-            <path
-              key={feature.id}
-              d={path}
-              fill={feature.fillColor}
-              fillOpacity={polygonOpacity}
-              stroke={feature.lineColor}
-              strokeWidth={2}
-              strokeOpacity={0.95}
-              fillRule="evenodd"
-              onClick={(event) => {
-                const map = mapRef.current
-
-                if (map) {
-                  const svgBounds =
-                    event.currentTarget.ownerSVGElement?.getBoundingClientRect()
-
-                  if (svgBounds) {
-                    const point: [number, number] = [
-                      event.clientX - svgBounds.left,
-                      event.clientY - svgBounds.top,
-                    ]
-                    const alertLayers = getExistingLayerIds(map, [
-                      alertPolygonsFillLayerId,
-                      alertPolygonsLineLayerId,
-                    ])
-                    const clickedAlertFeatures =
-                      alertLayers.length > 0
-                        ? map.queryRenderedFeatures(point, {
-                            layers: alertLayers,
-                          })
-                        : []
-                    const alertFeature =
-                      prioritizeAlertFeature(clickedAlertFeatures)
-
-                    if (alertFeature) {
-                      onHazardSelectRef.current(
-                        buildAlertSelectionFromMapFeatures(clickedAlertFeatures),
-                      )
-                      return
-                    }
-                  }
-                }
-
-                onHazardSelectRef.current({
-                  source: 'spc',
-                  title: `SPC Day ${selectedSpcDay} ${feature.category}`,
-                  subtitle: `${feature.category} risk area`,
-                  summary:
-                    'This polygon shows the current SPC severe-weather risk area for the selected day.',
-                  detailLines: [
-                    `Category: ${feature.category}`,
-                    `Valid: ${formatCompactTimestamp(feature.valid)}`,
-                    `Expires: ${formatCompactTimestamp(feature.expire)}`,
-                  ],
-                })
-              }}
-            />
-          ))}
-        </svg>
-      ) : null}
-      {projectedWinterFeatures.length > 0 ? (
-        <svg
-          className="map-vector-overlay"
-          viewBox={`0 0 ${liveViewport?.width ?? 0} ${liveViewport?.height ?? 0}`}
-          onWheel={forwardOverlayWheelToMap}
-        >
-          {projectedWinterFeatures.map(({ feature, path }) => (
-            <path
-              key={feature.id}
-              d={path}
-              fill={feature.fillColor}
-              fillOpacity={polygonOpacity}
-              stroke={feature.lineColor}
-              strokeWidth={2}
-              strokeOpacity={0.92}
-              fillRule="evenodd"
-              onClick={() =>
-                onHazardSelectRef.current({
-                  source: 'winter',
-                  title: `WPC Day ${selectedWinterDay} ${
-                    selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'
-                  }`,
-                  subtitle: feature.outlook,
-                  summary:
-                    feature.snippet ||
-                    'Probability of exceeding local winter storm warning criteria.',
-                  detailLines: [
-                    `Valid: ${feature.validTime || 'Unavailable'}`,
-                    `Issued: ${feature.issueTime || 'Unavailable'}`,
-                  ],
-                })
-              }
-            />
-          ))}
-        </svg>
-      ) : null}
       <div className="storm-track-overlay">
         {projectedTrackLabels.map((item) => (
           <div
@@ -1882,6 +1968,46 @@ function buildAlertSelectionFromMapFeatures(
         : []),
     ],
     relatedAlerts: relatedAlerts.length > 1 ? relatedAlerts : undefined,
+  }
+}
+
+function buildSpcSelectionFromFeature(
+  feature: maplibregl.MapGeoJSONFeature,
+): HazardSelection {
+  const category = String(feature.properties?.category ?? 'SPC risk')
+
+  return {
+    source: 'spc',
+    title: category,
+    subtitle: `${category} risk area`,
+    summary:
+      'This polygon shows the current SPC severe-weather risk area for the selected day.',
+    accentColor: String(feature.properties?.fillColor ?? '') || undefined,
+    detailLines: [
+      `Category: ${category}`,
+      `Valid: ${formatCompactTimestamp(feature.properties?.valid)}`,
+      `Expires: ${formatCompactTimestamp(feature.properties?.expire)}`,
+    ],
+  }
+}
+
+function buildWinterSelectionFromFeature(
+  feature: maplibregl.MapGeoJSONFeature,
+): HazardSelection {
+  const outlook = String(feature.properties?.outlook ?? 'Winter outlook')
+
+  return {
+    source: 'winter',
+    title: outlook,
+    subtitle: 'WPC winter outlook area',
+    summary:
+      String(feature.properties?.snippet ?? '') ||
+      'Probability of exceeding local winter storm warning criteria.',
+    accentColor: String(feature.properties?.fillColor ?? '') || undefined,
+    detailLines: [
+      `Valid: ${String(feature.properties?.validTime ?? 'Unavailable')}`,
+      `Issued: ${String(feature.properties?.issueTime ?? 'Unavailable')}`,
+    ],
   }
 }
 
@@ -2335,47 +2461,6 @@ function buildTrackHeadingLabel(
   const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
   return directions[Math.round(bearing / 22.5) % 16]
-}
-
-function projectPolygonFeatures<T extends { geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon }>(
-  map: maplibregl.Map,
-  features: T[],
-) {
-  return features
-    .map((feature) => ({
-      feature,
-      path: buildProjectedGeometryPath(map, feature.geometry),
-    }))
-    .filter((item) => item.path.length > 0)
-}
-
-function buildProjectedGeometryPath(
-  map: maplibregl.Map,
-  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-) {
-  if (geometry.type === 'Polygon') {
-    return geometry.coordinates.map((ring) => projectRingPath(map, ring)).join(' ')
-  }
-
-  return geometry.coordinates
-    .map((polygon) => polygon.map((ring) => projectRingPath(map, ring)).join(' '))
-    .join(' ')
-}
-
-function projectRingPath(
-  map: maplibregl.Map,
-  ring: number[][],
-) {
-  if (ring.length === 0) {
-    return ''
-  }
-
-  return ring
-    .map(([lon, lat], index) => {
-      const point = map.project([lon, lat])
-      return `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
-    })
-    .join(' ') + ' Z'
 }
 
 function setLayerVisibility(
