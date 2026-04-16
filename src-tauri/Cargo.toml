@@ -1,6 +1,6 @@
 [package]
 name = "stormvector"
-version = "1.0.0"
+version = "1.2.0"
 description = "StormVector weather workstation"
 authors = ["lag0matic"]
 license = "GPL-3.0-only"

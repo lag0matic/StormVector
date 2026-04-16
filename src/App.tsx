@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
@@ -298,96 +298,157 @@ function App() {
     error: satelliteTimelineError,
   } = useSatelliteTimeline(satelliteLayer)
 
-  const activeRadarProducts =
-    radarView === 'regional' ? regionalRadarProducts : localRadarProducts
-  const playbackIntervalMs =
-    playbackSpeeds.find((speed) => speed.id === playbackSpeed)?.intervalMs ?? 650
-  const activeLocalRadarFrames = filterFramesToWindow(
-    localRadarFrames,
-    playbackWindowMinutes,
+  const activeRadarProducts = useMemo(
+    () => (radarView === 'regional' ? regionalRadarProducts : localRadarProducts),
+    [radarView],
   )
-  const activeRegionalRadarFrames = filterFramesToWindow(
-    regionalRadarFrames,
-    playbackWindowMinutes,
+  const playbackIntervalMs = useMemo(
+    () =>
+      playbackSpeeds.find((speed) => speed.id === playbackSpeed)?.intervalMs ?? 650,
+    [playbackSpeed],
   )
-  const activeSatelliteFrames = filterFramesToWindow(
-    satelliteFrames,
-    playbackWindowMinutes,
+  const activeLocalRadarFrames = useMemo(
+    () => filterFramesToWindow(localRadarFrames, playbackWindowMinutes),
+    [localRadarFrames, playbackWindowMinutes],
   )
-  const latestRegionalRadarFrame =
-    activeRegionalRadarFrames[activeRegionalRadarFrames.length - 1] ?? null
-  const latestLocalRadarFrame =
-    activeLocalRadarFrames[activeLocalRadarFrames.length - 1] ?? null
-  const latestSatelliteFrame =
-    activeSatelliteFrames[activeSatelliteFrames.length - 1] ?? null
-  const selectedRegionalRadarTime =
-    radarView === 'regional' && activeRegionalRadarFrames.length > 0
-      ? activeRegionalRadarFrames[
-          Math.min(
-            selectedRegionalRadarFrameIndex,
-            activeRegionalRadarFrames.length - 1,
-          )
-        ]
-      : null
-  const selectedLocalRadarTime =
-    radarView === 'local' && activeLocalRadarFrames.length > 0
-      ? activeLocalRadarFrames[
-          Math.min(selectedLocalRadarFrameIndex, activeLocalRadarFrames.length - 1)
-        ]
-      : null
-  const selectedSatelliteTime =
-    activeLayer === 'Satellite' && activeSatelliteFrames.length > 0
-      ? activeSatelliteFrames[
-          Math.min(selectedSatelliteFrameIndex, activeSatelliteFrames.length - 1)
-        ]
-      : null
+  const activeRegionalRadarFrames = useMemo(
+    () => filterFramesToWindow(regionalRadarFrames, playbackWindowMinutes),
+    [regionalRadarFrames, playbackWindowMinutes],
+  )
+  const activeSatelliteFrames = useMemo(
+    () => filterFramesToWindow(satelliteFrames, playbackWindowMinutes),
+    [satelliteFrames, playbackWindowMinutes],
+  )
+  const latestRegionalRadarFrame = useMemo(
+    () => activeRegionalRadarFrames[activeRegionalRadarFrames.length - 1] ?? null,
+    [activeRegionalRadarFrames],
+  )
+  const latestLocalRadarFrame = useMemo(
+    () => activeLocalRadarFrames[activeLocalRadarFrames.length - 1] ?? null,
+    [activeLocalRadarFrames],
+  )
+  const latestSatelliteFrame = useMemo(
+    () => activeSatelliteFrames[activeSatelliteFrames.length - 1] ?? null,
+    [activeSatelliteFrames],
+  )
+  const selectedRegionalRadarTime = useMemo(
+    () =>
+      radarView === 'regional' && activeRegionalRadarFrames.length > 0
+        ? activeRegionalRadarFrames[
+            Math.min(
+              selectedRegionalRadarFrameIndex,
+              activeRegionalRadarFrames.length - 1,
+            )
+          ]
+        : null,
+    [activeRegionalRadarFrames, radarView, selectedRegionalRadarFrameIndex],
+  )
+  const selectedLocalRadarTime = useMemo(
+    () =>
+      radarView === 'local' && activeLocalRadarFrames.length > 0
+        ? activeLocalRadarFrames[
+            Math.min(selectedLocalRadarFrameIndex, activeLocalRadarFrames.length - 1)
+          ]
+        : null,
+    [activeLocalRadarFrames, radarView, selectedLocalRadarFrameIndex],
+  )
+  const selectedSatelliteTime = useMemo(
+    () =>
+      activeLayer === 'Satellite' && activeSatelliteFrames.length > 0
+        ? activeSatelliteFrames[
+            Math.min(selectedSatelliteFrameIndex, activeSatelliteFrames.length - 1)
+          ]
+        : null,
+    [activeLayer, activeSatelliteFrames, selectedSatelliteFrameIndex],
+  )
 
-  const currentTimelineFrames =
-    activeLayer === 'Satellite'
-      ? activeSatelliteFrames
-      : radarView === 'regional'
-        ? activeRegionalRadarFrames
-        : activeLocalRadarFrames
+  const currentTimelineFrames = useMemo(
+    () =>
+      activeLayer === 'Satellite'
+        ? activeSatelliteFrames
+        : radarView === 'regional'
+          ? activeRegionalRadarFrames
+          : activeLocalRadarFrames,
+    [activeLayer, activeLocalRadarFrames, activeRegionalRadarFrames, activeSatelliteFrames, radarView],
+  )
 
-  const activePlaybackIndex =
-    activeLayer === 'Satellite' && activeSatelliteFrames.length > 0
-      ? Math.min(selectedSatelliteFrameIndex, activeSatelliteFrames.length - 1)
-      : radarView === 'regional' && activeRegionalRadarFrames.length > 0
-        ? Math.min(
-            selectedRegionalRadarFrameIndex,
-            activeRegionalRadarFrames.length - 1,
-          )
-      : radarView === 'local' && activeLocalRadarFrames.length > 0
-      ? Math.min(selectedLocalRadarFrameIndex, activeLocalRadarFrames.length - 1)
-      : 0
-  const activePlaybackLabel =
-    currentTimelineFrames.length > 0
-      ? activePlaybackIndex === currentTimelineFrames.length - 1
-        ? 'Live'
-        : formatFrameLabel(currentTimelineFrames[activePlaybackIndex])
-      : playbackFrames[0]
-  const visibleAlertFeatures = alertFeatures.filter(
-    (feature) => alertTypeFilters[feature.alertType],
+  const activePlaybackIndex = useMemo(() => {
+    if (activeLayer === 'Satellite' && activeSatelliteFrames.length > 0) {
+      return Math.min(selectedSatelliteFrameIndex, activeSatelliteFrames.length - 1)
+    }
+
+    if (radarView === 'regional' && activeRegionalRadarFrames.length > 0) {
+      return Math.min(
+        selectedRegionalRadarFrameIndex,
+        activeRegionalRadarFrames.length - 1,
+      )
+    }
+
+    if (radarView === 'local' && activeLocalRadarFrames.length > 0) {
+      return Math.min(selectedLocalRadarFrameIndex, activeLocalRadarFrames.length - 1)
+    }
+
+    return 0
+  }, [
+    activeLayer,
+    activeLocalRadarFrames,
+    activeRegionalRadarFrames,
+    activeSatelliteFrames,
+    radarView,
+    selectedLocalRadarFrameIndex,
+    selectedRegionalRadarFrameIndex,
+    selectedSatelliteFrameIndex,
+  ])
+  const activePlaybackLabel = useMemo(
+    () =>
+      currentTimelineFrames.length > 0
+        ? activePlaybackIndex === currentTimelineFrames.length - 1
+          ? 'Live'
+          : formatFrameLabel(currentTimelineFrames[activePlaybackIndex])
+        : playbackFrames[0],
+    [activePlaybackIndex, currentTimelineFrames],
   )
-  const availableCameraStates = Array.from(
-    new Set(
-      cameraFeeds
-        .map((feed) => feed.state)
-        .filter((state): state is string => Boolean(state)),
-    ),
-  ).sort()
-  const normalizedCameraStateFilters = normalizeCameraStateFilters(
-    availableCameraStates,
-    cameraStateFilters,
+  const visibleAlertFeatures = useMemo(
+    () => alertFeatures.filter((feature) => alertTypeFilters[feature.alertType]),
+    [alertFeatures, alertTypeFilters],
   )
-  const visibleCameraFeeds = cameraFeeds.filter((feed) =>
-    isCameraVisibleForState(feed.state, normalizedCameraStateFilters),
+  const availableCameraStates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          cameraFeeds
+            .map((feed) => feed.state)
+            .filter((state): state is string => Boolean(state)),
+        ),
+      ).sort(),
+    [cameraFeeds],
   )
-  const recentLocalStormReports = localStormReports
-    .filter((feature) => feature.ageMinutes === null || feature.ageMinutes <= 180)
-    .filter((feature) => reportTypeFilters[feature.reportCategory])
-  const nearbyAlerts = getNearbyAlerts(visibleAlertFeatures, selectedCoordinates, 70)
-  const nearbyReports = getNearbyReports(recentLocalStormReports, selectedCoordinates, 70)
+  const normalizedCameraStateFilters = useMemo(
+    () => normalizeCameraStateFilters(availableCameraStates, cameraStateFilters),
+    [availableCameraStates, cameraStateFilters],
+  )
+  const visibleCameraFeeds = useMemo(
+    () =>
+      cameraFeeds.filter((feed) =>
+        isCameraVisibleForState(feed.state, normalizedCameraStateFilters),
+      ),
+    [cameraFeeds, normalizedCameraStateFilters],
+  )
+  const recentLocalStormReports = useMemo(
+    () =>
+      localStormReports
+        .filter((feature) => feature.ageMinutes === null || feature.ageMinutes <= 180)
+        .filter((feature) => reportTypeFilters[feature.reportCategory]),
+    [localStormReports, reportTypeFilters],
+  )
+  const nearbyAlerts = useMemo(
+    () => getNearbyAlerts(visibleAlertFeatures, selectedCoordinates, 70),
+    [selectedCoordinates, visibleAlertFeatures],
+  )
+  const nearbyReports = useMemo(
+    () => getNearbyReports(recentLocalStormReports, selectedCoordinates, 70),
+    [recentLocalStormReports, selectedCoordinates],
+  )
   const audibleAlertCoordinates =
     audibleAlertSettings.target === 'home' && homeLocation
       ? homeLocation.coordinates
@@ -396,37 +457,53 @@ function App() {
     audibleAlertSettings.target === 'home'
       ? homeLocation?.label ?? 'Selected point'
       : weather.location.name
-  const audibleNearbyAlerts = getNearbyAlerts(
-    alertFeatures,
-    audibleAlertCoordinates,
-    audibleAlertSettings.radiusMiles,
-  ).filter(({ alert }) =>
-    alert.alertType === 'warning'
-      ? audibleAlertSettings.warning
-      : alert.alertType === 'watch'
-        ? audibleAlertSettings.watch
-        : false,
+  const audibleNearbyAlerts = useMemo(
+    () =>
+      getNearbyAlerts(
+        alertFeatures,
+        audibleAlertCoordinates,
+        audibleAlertSettings.radiusMiles,
+      ).filter(({ alert }) =>
+        alert.alertType === 'warning'
+          ? audibleAlertSettings.warning
+          : alert.alertType === 'watch'
+            ? audibleAlertSettings.watch
+            : false,
+      ),
+    [alertFeatures, audibleAlertCoordinates, audibleAlertSettings],
   )
   const currentSavedLocation = {
     label: weather.location.name,
     coordinates: selectedCoordinates,
   } satisfies SavedLocation
-  const stormTrackDistanceMiles =
-    stormTrackOrigin && stormTrackEnd
-      ? distanceBetweenMiles(stormTrackOrigin, stormTrackEnd)
-      : 0
-  const stormTrackTravelMinutes =
-    stormTrackDistanceMiles > 0 && stormTrackSpeedMph > 0
-      ? (stormTrackDistanceMiles / stormTrackSpeedMph) * 60
-      : 0
-  const stormTrackHeading =
-    stormTrackOrigin && stormTrackEnd
-      ? describeTrackHeading(stormTrackOrigin, stormTrackEnd)
-      : null
-  const stormTrackSpeedPresets =
-    stormTrackOrigin && stormTrackEnd
-      ? buildStormTrackSpeedPresets(stormTrackDistanceMiles)
-      : []
+  const stormTrackDistanceMiles = useMemo(
+    () =>
+      stormTrackOrigin && stormTrackEnd
+        ? distanceBetweenMiles(stormTrackOrigin, stormTrackEnd)
+        : 0,
+    [stormTrackEnd, stormTrackOrigin],
+  )
+  const stormTrackTravelMinutes = useMemo(
+    () =>
+      stormTrackDistanceMiles > 0 && stormTrackSpeedMph > 0
+        ? (stormTrackDistanceMiles / stormTrackSpeedMph) * 60
+        : 0,
+    [stormTrackDistanceMiles, stormTrackSpeedMph],
+  )
+  const stormTrackHeading = useMemo(
+    () =>
+      stormTrackOrigin && stormTrackEnd
+        ? describeTrackHeading(stormTrackOrigin, stormTrackEnd)
+        : null,
+    [stormTrackEnd, stormTrackOrigin],
+  )
+  const stormTrackSpeedPresets = useMemo(
+    () =>
+      stormTrackOrigin && stormTrackEnd
+        ? buildStormTrackSpeedPresets(stormTrackDistanceMiles)
+        : [],
+    [stormTrackDistanceMiles, stormTrackEnd, stormTrackOrigin],
+  )
   const {
     places: stormTrackPlaces,
     loading: stormTrackPlacesLoading,
@@ -435,69 +512,150 @@ function App() {
     stormTrackOrigin,
     stormTrackEnd,
   )
-  const stormTrackArrivals = buildStormTrackArrivals(
-    stormTrackPlaces,
-    stormTrackSpeedMph,
+  const stormTrackArrivals = useMemo(
+    () => buildStormTrackArrivals(stormTrackPlaces, stormTrackSpeedMph),
+    [stormTrackPlaces, stormTrackSpeedMph],
   )
-  const viewingLabel =
-    activeLayer === 'Radar'
-      ? activeRadarProducts.find((product) => product.id === radarProduct)?.label ?? 'Radar'
-      : activeLayer === 'Satellite'
-        ? defaultSatelliteLayers.find((layer) => layer.id === satelliteLayer)?.label ??
-          'Satellite'
-        : activeForecastOverlay
-  const statusPrimary =
-    activeLayer === 'Radar'
-      ? radarView === 'regional'
-        ? selectedRegionalRadarTime
+  const viewingLabel = useMemo(
+    () =>
+      activeLayer === 'Radar'
+        ? activeRadarProducts.find((product) => product.id === radarProduct)?.label ??
+          'Radar'
+        : activeLayer === 'Satellite'
+          ? defaultSatelliteLayers.find((layer) => layer.id === satelliteLayer)?.label ??
+            'Satellite'
+          : activeForecastOverlay,
+    [activeForecastOverlay, activeLayer, activeRadarProducts, radarProduct, satelliteLayer],
+  )
+  const statusPrimary = useMemo(() => {
+    if (activeLayer === 'Radar') {
+      if (radarView === 'regional') {
+        return selectedRegionalRadarTime
           ? formatFrameTimestamp(selectedRegionalRadarTime)
           : regionalRadarTimelineLoading
             ? 'Loading regional frames...'
             : regionalRadarTimelineError ?? 'Regional playback unavailable'
-        : selectedLocalRadarTime
-          ? formatFrameTimestamp(selectedLocalRadarTime)
-          : localRadarTimelineLoading
-            ? 'Loading local frames...'
-            : localRadarTimelineError ?? 'Local playback unavailable'
-      : activeLayer === 'Satellite'
-        ? selectedSatelliteTime
-          ? formatFrameTimestamp(selectedSatelliteTime)
-          : satelliteTimelineLoading
-            ? 'Loading GOES frames...'
-            : satelliteTimelineError ?? 'Satellite playback unavailable'
-        : activeForecastOverlay === 'SPC Storm Risk'
-          ? `${spcFeatures.length} SPC polygons`
-          : activeForecastOverlay === 'Winter'
-            ? `${winterFeatures.length} WPC polygons`
-            : `${visibleAlertFeatures.length} alert polygons`
-  const statusSecondary =
-    activeLayer === 'Radar'
-      ? radarView === 'local'
-        ? activeRadarSite
+      }
+
+      return selectedLocalRadarTime
+        ? formatFrameTimestamp(selectedLocalRadarTime)
+        : localRadarTimelineLoading
+          ? 'Loading local frames...'
+          : localRadarTimelineError ?? 'Local playback unavailable'
+    }
+
+    if (activeLayer === 'Satellite') {
+      return selectedSatelliteTime
+        ? formatFrameTimestamp(selectedSatelliteTime)
+        : satelliteTimelineLoading
+          ? 'Loading GOES frames...'
+          : satelliteTimelineError ?? 'Satellite playback unavailable'
+    }
+
+    if (activeForecastOverlay === 'SPC Storm Risk') {
+      return `${spcFeatures.length} SPC polygons`
+    }
+
+    if (activeForecastOverlay === 'Winter') {
+      return `${winterFeatures.length} WPC polygons`
+    }
+
+    return `${visibleAlertFeatures.length} alert polygons`
+  }, [
+    activeForecastOverlay,
+    activeLayer,
+    localRadarTimelineError,
+    localRadarTimelineLoading,
+    radarView,
+    regionalRadarTimelineError,
+    regionalRadarTimelineLoading,
+    satelliteTimelineError,
+    satelliteTimelineLoading,
+    selectedLocalRadarTime,
+    selectedRegionalRadarTime,
+    selectedSatelliteTime,
+    spcFeatures.length,
+    visibleAlertFeatures.length,
+    winterFeatures.length,
+  ])
+  const statusSecondary = useMemo(() => {
+    if (activeLayer === 'Radar') {
+      if (radarView === 'local') {
+        return activeRadarSite
           ? `${selectedRadarSiteId ? 'Site' : 'Nearest'} ${activeRadarSite.id}`
           : nearestRadarLoading
             ? 'Resolving site...'
             : nearestRadarError ?? null
-        : showCameras
-          ? cameraFeedsLoading
-            ? 'Loading cameras...'
-            : `${visibleCameraFeeds.length} cameras`
-        : showChasers
-          ? spotterNetworkLoading
-            ? 'Loading chasers...'
-            : `${spotterNetworkFeatures.length} chasers`
-        : showSpotterReports
-          ? localStormReportsLoading
-            ? 'Loading recent reports...'
-            : `${recentLocalStormReports.length} recent reports`
-          : `${visibleAlertFeatures.length} alerts visible`
-      : activeLayer === 'Satellite'
-        ? `${visibleAlertFeatures.length} alerts visible`
-        : activeForecastOverlay === 'SPC Storm Risk'
-          ? `Day ${selectedSpcDay}`
-          : activeForecastOverlay === 'Winter'
-            ? `${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'} Day ${selectedWinterDay}`
-            : `${visibleAlertFeatures.length} alerts visible`
+      }
+
+      if (showCameras) {
+        return cameraFeedsLoading
+          ? 'Loading cameras...'
+          : `${visibleCameraFeeds.length} cameras`
+      }
+
+      if (showChasers) {
+        return spotterNetworkLoading
+          ? 'Loading chasers...'
+          : `${spotterNetworkFeatures.length} chasers`
+      }
+
+      if (showSpotterReports) {
+        return localStormReportsLoading
+          ? 'Loading recent reports...'
+          : `${recentLocalStormReports.length} recent reports`
+      }
+
+      return `${visibleAlertFeatures.length} alerts visible`
+    }
+
+    if (activeLayer === 'Satellite') {
+      return `${visibleAlertFeatures.length} alerts visible`
+    }
+
+    if (activeForecastOverlay === 'SPC Storm Risk') {
+      return `Day ${selectedSpcDay}`
+    }
+
+    if (activeForecastOverlay === 'Winter') {
+      return `${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'} Day ${selectedWinterDay}`
+    }
+
+    return `${visibleAlertFeatures.length} alerts visible`
+  }, [
+    activeForecastOverlay,
+    activeLayer,
+    activeRadarSite,
+    cameraFeedsLoading,
+    localStormReportsLoading,
+    nearestRadarError,
+    nearestRadarLoading,
+    radarView,
+    recentLocalStormReports.length,
+    selectedRadarSiteId,
+    selectedSpcDay,
+    selectedWinterDay,
+    selectedWinterProduct,
+    showCameras,
+    showChasers,
+    showSpotterReports,
+    spotterNetworkFeatures.length,
+    spotterNetworkLoading,
+    visibleAlertFeatures.length,
+    visibleCameraFeeds.length,
+  ])
+  const stackedHazardAlerts = useMemo(
+    () => selectedHazard?.source === 'alerts' ? selectedHazard.relatedAlerts ?? [] : [],
+    [selectedHazard],
+  )
+  const extraStackedHazardAlerts = useMemo(
+    () => stackedHazardAlerts.slice(1),
+    [stackedHazardAlerts],
+  )
+  const selectedHazardChipStyle = useMemo(
+    () => buildAlertChipStyle(selectedHazard?.accentColor),
+    [selectedHazard],
+  )
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode
@@ -837,41 +995,93 @@ function App() {
     satellitePlaybackRunning,
   ])
 
-  async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSearching(true)
+  const handleSearchSubmit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      setSearching(true)
+      setSearchError(null)
+
+      try {
+        const result = await geocodeLocation(searchText)
+        setSelectedCoordinates(result.coordinates)
+        setShouldRecenterMap(true)
+        setSelectedHazard(null)
+        setSelectedCamera(null)
+        setSearchText(result.label)
+      } catch (searchError) {
+        const message =
+          searchError instanceof Error
+            ? searchError.message
+            : 'Location search failed.'
+        setSearchError(message)
+      } finally {
+        setSearching(false)
+      }
+    },
+    [searchText],
+  )
+
+  const commitOpacityValue = useCallback(
+    <K extends keyof typeof defaultLayerOpacity>(key: K, value: number) => {
+      const normalizedValue = clampPercentage(value, layerOpacity[key])
+      setLayerOpacity((current) =>
+        normalizeLayerOpacity({
+          ...current,
+          [key]: normalizedValue,
+        }),
+      )
+    },
+    [layerOpacity],
+  )
+  const commitRadarOpacity = useCallback(
+    (value: number) => commitOpacityValue('radar', value),
+    [commitOpacityValue],
+  )
+  const commitSatelliteOpacity = useCallback(
+    (value: number) => commitOpacityValue('satellite', value),
+    [commitOpacityValue],
+  )
+  const commitWarningOpacity = useCallback(
+    (value: number) => commitOpacityValue('warnings', value),
+    [commitOpacityValue],
+  )
+  const commitWatchOpacity = useCallback(
+    (value: number) => commitOpacityValue('watches', value),
+    [commitOpacityValue],
+  )
+  const commitPolygonOpacity = useCallback(
+    (value: number) => commitOpacityValue('polygons', value),
+    [commitOpacityValue],
+  )
+  const handleHazardSelect = useCallback((selection: HazardSelection) => {
+    setSelectedCamera(null)
+    setSelectedHazard(selection)
+    setSidePanelTab('hazards')
+  }, [])
+  const handleCameraSelect = useCallback((selection: CameraSelection) => {
+    setSelectedHazard(null)
+    setSelectedCamera(selection)
+    setSidePanelTab('hazards')
+  }, [])
+  const handleStormTrackOriginSet = useCallback((coordinates: [number, number]) => {
+    setStormTrackOrigin(coordinates)
+    setStormTrackEnd(null)
+  }, [])
+  const handleMapClick = useCallback((coordinates: [number, number]) => {
+    setSelectedCoordinates(coordinates)
+    setShouldRecenterMap(false)
+    setSelectedHazard(null)
+    setSelectedCamera(null)
+    setSearchText(`${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`)
     setSearchError(null)
-
-    try {
-      const result = await geocodeLocation(searchText)
-      setSelectedCoordinates(result.coordinates)
-      setShouldRecenterMap(true)
-      setSelectedHazard(null)
-      setSelectedCamera(null)
-      setSearchText(result.label)
-    } catch (searchError) {
-      const message =
-        searchError instanceof Error
-          ? searchError.message
-          : 'Location search failed.'
-      setSearchError(message)
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  function commitOpacityValue<K extends keyof typeof defaultLayerOpacity>(
-    key: K,
-    value: number,
-  ) {
-    const normalizedValue = clampPercentage(value, layerOpacity[key])
-    setLayerOpacity((current) =>
-      normalizeLayerOpacity({
-        ...current,
-        [key]: normalizedValue,
-      }),
-    )
-  }
+  }, [])
+  const handleRadarSiteSelect = useCallback((siteId: string) => {
+    setSelectedRadarSiteId(siteId)
+    setSelectedLocalRadarFrameIndex(0)
+    setFollowLatestFrame(true)
+    setLocalPlaybackRunning(false)
+    setSearchError(null)
+  }, [])
 
   return (
     <div className="app-shell">
@@ -1400,35 +1610,35 @@ function App() {
                       <OpacitySlider
                         label="Radar"
                         value={layerOpacity.radar}
-                        onCommit={(value) => commitOpacityValue('radar', value)}
+                        onCommit={commitRadarOpacity}
                       />
                     </div>
                     <div className="slider-group">
                       <OpacitySlider
                         label="Satellite"
                         value={layerOpacity.satellite}
-                        onCommit={(value) => commitOpacityValue('satellite', value)}
+                        onCommit={commitSatelliteOpacity}
                       />
                     </div>
                     <div className="slider-group">
                       <OpacitySlider
                         label="Warnings"
                         value={layerOpacity.warnings}
-                        onCommit={(value) => commitOpacityValue('warnings', value)}
+                        onCommit={commitWarningOpacity}
                       />
                     </div>
                     <div className="slider-group">
                       <OpacitySlider
                         label="Watches"
                         value={layerOpacity.watches}
-                        onCommit={(value) => commitOpacityValue('watches', value)}
+                        onCommit={commitWatchOpacity}
                       />
                     </div>
                     <div className="slider-group">
                       <OpacitySlider
                         label="Forecast Polygons"
                         value={layerOpacity.polygons}
-                        onCommit={(value) => commitOpacityValue('polygons', value)}
+                        onCommit={commitPolygonOpacity}
                       />
                     </div>
                   </div>
@@ -1477,7 +1687,8 @@ function App() {
               localRadarDefinition={localRadarDefinition}
               selectedRadarSiteId={selectedRadarSiteId}
               selectedLocalRadarTime={selectedLocalRadarTime}
-              alertFeatures={visibleAlertFeatures}
+              alertFeatures={alertFeatures}
+              alertTypeFilters={alertTypeFilters}
               localStormReports={recentLocalStormReports}
               cameraFeeds={visibleCameraFeeds}
               spotterNetworkFeatures={spotterNetworkFeatures}
@@ -1495,38 +1706,12 @@ function App() {
               stormTrackEnd={stormTrackEnd}
               stormTrackSpeedMph={stormTrackSpeedMph}
               stormTrackResetKey={stormTrackResetKey}
-              onHazardSelect={(selection) => {
-                setSelectedCamera(null)
-                setSelectedHazard(selection)
-                setSidePanelTab('hazards')
-              }}
-              onCameraSelect={(selection) => {
-                setSelectedHazard(null)
-                setSelectedCamera(selection)
-                setSidePanelTab('hazards')
-              }}
-              onStormTrackOriginSet={(coordinates) => {
-                setStormTrackOrigin(coordinates)
-                setStormTrackEnd(null)
-              }}
+              onHazardSelect={handleHazardSelect}
+              onCameraSelect={handleCameraSelect}
+              onStormTrackOriginSet={handleStormTrackOriginSet}
               onStormTrackEndSet={setStormTrackEnd}
-              onMapClick={(coordinates) => {
-                  setSelectedCoordinates(coordinates)
-                  setShouldRecenterMap(false)
-                  setSelectedHazard(null)
-                  setSelectedCamera(null)
-                setSearchText(
-                  `${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`,
-                )
-                setSearchError(null)
-              }}
-              onRadarSiteSelect={(siteId) => {
-                setSelectedRadarSiteId(siteId)
-                setSelectedLocalRadarFrameIndex(0)
-                setFollowLatestFrame(true)
-                setLocalPlaybackRunning(false)
-                setSearchError(null)
-              }}
+              onMapClick={handleMapClick}
+              onRadarSiteSelect={handleRadarSiteSelect}
             />
 
             <div className="map-floating map-floating-top-left">
@@ -2049,9 +2234,36 @@ function App() {
                   type="button"
                   className={sidePanelTab === 'hazards' ? 'chip active' : 'chip'}
                   onClick={() => setSidePanelTab('hazards')}
+                  style={sidePanelTab === 'hazards' ? selectedHazardChipStyle : undefined}
                 >
                   Hazards
                 </button>
+                {extraStackedHazardAlerts.map((alert, index) => (
+                  <button
+                    key={alert.id}
+                    type="button"
+                    className="chip chip-stack"
+                    style={buildAlertChipStyle(alert.accentColor)}
+                    onClick={() => {
+                      const matchingAlert = alertFeatures.find((feature) => feature.id === alert.id)
+
+                      if (matchingAlert) {
+                        const reorderedAlerts = [
+                          alert,
+                          ...stackedHazardAlerts.filter((item) => item.id !== alert.id),
+                        ]
+
+                        setSelectedHazard(
+                          buildAlertSelection(matchingAlert, reorderedAlerts),
+                        )
+                        setSidePanelTab('hazards')
+                      }
+                    }}
+                    title={alert.title}
+                  >
+                    +{index + 1}
+                  </button>
+                ))}
               </div>
               <span className={sidePanelTab === 'hazards' ? 'badge danger' : 'badge'}>
                 {sidePanelTab === 'forecast'
@@ -2466,12 +2678,16 @@ function buildAlertNarrative(description: string, instruction: string) {
   return parts.join('\n\n')
 }
 
-function buildAlertSelection(alert: AlertFeature): HazardSelection {
+function buildAlertSelection(
+  alert: AlertFeature,
+  relatedAlerts?: HazardSelection['relatedAlerts'],
+): HazardSelection {
   return {
     source: 'alerts',
     title: alert.event,
     subtitle: alert.headline,
     summary: alert.areaDescription,
+    accentColor: alert.fillColor,
     body: buildAlertNarrative(alert.description, alert.instruction),
     detailLines: [
       `Severity: ${alert.severity}`,
@@ -2483,6 +2699,19 @@ function buildAlertSelection(alert: AlertFeature): HazardSelection {
         ? [`Expires: ${formatIsoHazardTimestamp(alert.expires)}`]
         : []),
     ],
+    relatedAlerts,
+  }
+}
+
+function buildAlertChipStyle(accentColor?: string) {
+  if (!accentColor) {
+    return undefined
+  }
+
+  return {
+    color: accentColor,
+    borderColor: accentColor,
+    background: `${accentColor}22`,
   }
 }
 

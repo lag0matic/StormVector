@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import maplibregl from 'maplibre-gl'
 import {
   findNearestRadarSiteFromList,
@@ -41,6 +41,12 @@ type MapCanvasProps = {
   selectedRadarSiteId: string | null
   selectedLocalRadarTime: string | null
   alertFeatures: AlertFeature[]
+  alertTypeFilters: {
+    warning: boolean
+    watch: boolean
+    advisory: boolean
+    statement: boolean
+  }
   localStormReports: LocalStormReportFeature[]
   cameraFeeds: CameraFeed[]
   spotterNetworkFeatures: SpotterNetworkFeature[]
@@ -95,6 +101,10 @@ const lightBasemapSourceId = 'light-basemap'
 const lightBasemapLayerId = 'light-basemap-layer'
 const darkBasemapSourceId = 'dark-basemap'
 const darkBasemapLayerId = 'dark-basemap-layer'
+const regionalRadarSourceId = 'regional-radar-source'
+const regionalRadarLayerId = 'regional-radar-layer'
+const localRadarSourceId = 'local-radar-source'
+const localRadarLayerId = 'local-radar-layer'
 const radarSitesSourceId = 'nws-radar-sites'
 const radarSitesLayerId = 'nws-radar-sites-layer'
 const selectedRadarSiteLayerId = 'nws-selected-radar-site-layer'
@@ -117,7 +127,7 @@ const stormTrackLineLayerId = 'storm-track-line'
 const stormTrackPointLayerId = 'storm-track-point'
 const clickTolerancePixels = 6
 
-export function MapCanvas({
+export const MapCanvas = memo(function MapCanvas({
   center,
   shouldRecenterMap,
   themeMode,
@@ -138,6 +148,7 @@ export function MapCanvas({
   selectedRadarSiteId,
   selectedLocalRadarTime,
   alertFeatures,
+  alertTypeFilters,
   localStormReports,
   cameraFeeds,
   spotterNetworkFeatures,
@@ -186,6 +197,8 @@ export function MapCanvas({
   const radarViewRef = useRef(radarView)
   const stormTrackDragRef = useRef(false)
   const stormTrackPreviewEndRef = useRef<[number, number] | null>(null)
+  const regionalRadarSignatureRef = useRef<string | null>(null)
+  const localRadarSignatureRef = useRef<string | null>(null)
   const onStormTrackOriginSetRef = useRef(onStormTrackOriginSet)
   const onStormTrackEndSetRef = useRef(onStormTrackEndSet)
   const trackToolEnabledRef = useRef(trackToolEnabled)
@@ -795,6 +808,26 @@ export function MapCanvas({
       return
     }
 
+    const enabledAlertTypes = Object.entries(alertTypeFilters)
+      .filter(([, enabled]) => enabled)
+      .map(([type]) => type)
+
+    const nextFilter: unknown[] | null =
+      enabledAlertTypes.length > 0
+        ? ['in', ['get', 'alertType'], ['literal', enabledAlertTypes]]
+        : ['==', ['get', 'alertType'], '__none__']
+
+    setFilterSafe(map, alertPolygonsFillLayerId, nextFilter)
+    setFilterSafe(map, alertPolygonsLineLayerId, nextFilter)
+  }, [alertTypeFilters])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
     const collection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
       type: 'FeatureCollection',
       features: localStormReports.map((feature) => ({
@@ -1306,14 +1339,13 @@ export function MapCanvas({
         alertPolygonsFillLayerId,
         alertPolygonsLineLayerId,
       ])
-      const feature =
+      const clickedAlertFeatures =
         alertLayers.length > 0
-          ? prioritizeAlertFeature(
-              map.queryRenderedFeatures(event.point, {
-                layers: alertLayers,
-              }),
-            )
-          : undefined
+          ? map.queryRenderedFeatures(event.point, {
+              layers: alertLayers,
+            })
+          : []
+      const feature = prioritizeAlertFeature(clickedAlertFeatures)
 
       if (!feature) {
         popup.remove()
@@ -1323,32 +1355,13 @@ export function MapCanvas({
       popup
         .setLngLat(event.lngLat)
         .setHTML(
-          `<strong>${feature.properties?.event ?? 'Active alert'}</strong><div>${feature.properties?.headline ?? ''}</div><div>${feature.properties?.severity ?? 'Unknown'} severity | ${feature.properties?.urgency ?? 'Unknown'} urgency</div><div>${feature.properties?.areaDescription ?? ''}</div>`,
+          `<strong>${feature.properties?.event ?? 'Active alert'}</strong>`,
         )
         .addTo(map)
 
-      onHazardSelectRef.current({
-        source: 'alerts',
-        title: String(feature.properties?.event ?? 'Active alert'),
-        subtitle: String(feature.properties?.headline ?? 'NWS active alert'),
-        summary: String(
-          feature.properties?.areaDescription ?? 'Area description unavailable.',
-        ),
-        body: buildAlertNarrative(
-          String(feature.properties?.description ?? ''),
-          String(feature.properties?.instruction ?? ''),
-        ),
-        detailLines: [
-          `Severity: ${String(feature.properties?.severity ?? 'Unknown')}`,
-          `Urgency: ${String(feature.properties?.urgency ?? 'Unknown')}`,
-          ...(feature.properties?.effective
-            ? [`Effective: ${formatIsoTimestamp(String(feature.properties.effective))}`]
-            : []),
-          ...(feature.properties?.expires
-            ? [`Expires: ${formatIsoTimestamp(String(feature.properties.expires))}`]
-            : []),
-        ],
-      })
+      onHazardSelectRef.current(
+        buildAlertSelectionFromMapFeatures(clickedAlertFeatures),
+      )
     }
 
     map.on('click', handleAlertClick)
@@ -1506,7 +1519,7 @@ export function MapCanvas({
       popup
         .setLngLat(event.lngLat)
         .setHTML(
-          `<strong>SPC Day ${selectedSpcDay} ${feature.properties?.category ?? 'Outlook'}</strong><div>Valid: ${formatCompactTimestamp(feature.properties?.valid)}</div><div>Expires: ${formatCompactTimestamp(feature.properties?.expire)}</div>`,
+          `<strong>SPC Day ${selectedSpcDay} ${feature.properties?.category ?? 'Outlook'}</strong>`,
         )
         .addTo(map)
 
@@ -1562,7 +1575,7 @@ export function MapCanvas({
       popup
         .setLngLat(event.lngLat)
         .setHTML(
-          `<strong>WPC Day ${selectedWinterDay} ${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'}</strong><div>${feature.properties?.outlook ?? 'Winter outlook'}</div><div>${feature.properties?.snippet ?? ''}</div>`,
+          `<strong>WPC Day ${selectedWinterDay} ${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'}</strong>`,
         )
         .addTo(map)
 
@@ -1767,39 +1780,202 @@ export function MapCanvas({
     )
   }, [stormTrackEnd, stormTrackOrigin, stormTrackSpeedMph, trackToolEnabled, stormTrackResetKey])
 
-  const regionalRadarOverlayUrl =
-    requestViewport && activeLayer === 'Radar' && radarView === 'regional'
-      ? buildRegionalRadarImageUrl(
-          radarProduct === 'composite' ? 'composite' : 'base',
-          {
-            west: requestViewport.mercatorWest,
-            south: requestViewport.mercatorSouth,
-            east: requestViewport.mercatorEast,
-            north: requestViewport.mercatorNorth,
-            width: requestViewport.width,
-            height: requestViewport.height,
-            time: selectedRegionalRadarTime,
-          },
-        )
-      : null
-  const localRadarOverlayUrl =
-    requestViewport &&
-    activeLayer === 'Radar' &&
-    radarView === 'local' &&
-    nearestRadarSite &&
-    localRadarDefinition
-      ? buildLocalRadarImageUrl({
-          nearestRadarSite,
-          localRadarDefinition,
-          selectedLocalRadarTime,
-          west: requestViewport.mercatorWest,
-          south: requestViewport.mercatorSouth,
-          east: requestViewport.mercatorEast,
-          north: requestViewport.mercatorNorth,
-          width: requestViewport.width,
-          height: requestViewport.height,
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const isVisible = activeLayer === 'Radar' && radarView === 'regional'
+    const tileUrl = buildRegionalRadarTileUrl(
+      radarProduct === 'composite' ? 'composite' : 'base',
+      selectedRegionalRadarTime,
+    )
+    const sourceSignature = tileUrl
+
+    const applyRegionalRadarLayer = () => {
+      if (!isVisible) {
+        setLayerVisibility(map, regionalRadarLayerId, false)
+        return
+      }
+
+      const existingSignature =
+        hasLayerSafe(map, regionalRadarLayerId) &&
+        hasSourceSafe(map, regionalRadarSourceId)
+          ? regionalRadarSignatureRef.current ?? ''
+          : ''
+
+      if (!hasSourceSafe(map, regionalRadarSourceId)) {
+        map.addSource(regionalRadarSourceId, {
+          type: 'raster',
+          tiles: [tileUrl],
+          tileSize: 256,
+          attribution:
+            '&copy; <a href="https://www.weather.gov/">NOAA / NWS</a>',
         })
-      : null
+      } else {
+        const source = getSourceSafe<
+          maplibregl.Source & { setTiles?: (tiles: string[]) => void }
+        >(map, regionalRadarSourceId)
+        if (existingSignature !== sourceSignature || radarView === 'regional') {
+          source?.setTiles?.([tileUrl])
+          regionalRadarSignatureRef.current = sourceSignature
+        }
+      }
+
+      if (!hasLayerSafe(map, regionalRadarLayerId)) {
+        const beforeLayerId = hasLayerSafe(map, alertPolygonsFillLayerId)
+          ? alertPolygonsFillLayerId
+          : undefined
+
+        map.addLayer(
+          {
+            id: regionalRadarLayerId,
+            type: 'raster',
+            source: regionalRadarSourceId,
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'raster-opacity': radarOpacity,
+              'raster-fade-duration': 320,
+            },
+          },
+          beforeLayerId,
+        )
+      }
+
+      regionalRadarSignatureRef.current = sourceSignature
+      setLayerVisibility(map, regionalRadarLayerId, true)
+      setPaintPropertySafe(map, regionalRadarLayerId, 'raster-opacity', radarOpacity)
+
+      nudgeMapRender(map)
+    }
+
+    if (map.isStyleLoaded()) {
+      applyRegionalRadarLayer()
+    } else {
+      map.once('load', applyRegionalRadarLayer)
+    }
+  }, [activeLayer, radarOpacity, radarProduct, radarView, selectedRegionalRadarTime])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    if (activeLayer !== 'Radar') {
+      setLayerVisibility(map, regionalRadarLayerId, false)
+      setLayerVisibility(map, localRadarLayerId, false)
+      return
+    }
+
+    if (radarView === 'regional') {
+      setLayerVisibility(map, regionalRadarLayerId, true)
+      setLayerVisibility(map, localRadarLayerId, false)
+    } else {
+      setLayerVisibility(map, localRadarLayerId, true)
+      setLayerVisibility(map, regionalRadarLayerId, false)
+    }
+  }, [activeLayer, radarView])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const isVisible =
+      activeLayer === 'Radar' &&
+      radarView === 'local' &&
+      nearestRadarSite &&
+      localRadarDefinition
+    const tileUrl =
+      nearestRadarSite && localRadarDefinition
+        ? buildLocalRadarTileUrl({
+            nearestRadarSite,
+            localRadarDefinition,
+            selectedLocalRadarTime,
+          })
+        : null
+    const sourceSignature = tileUrl ?? ''
+
+    const applyLocalRadarLayer = () => {
+      if (!isVisible || !tileUrl) {
+        setLayerVisibility(map, localRadarLayerId, false)
+        return
+      }
+
+      const existingSignature =
+        hasLayerSafe(map, localRadarLayerId) && hasSourceSafe(map, localRadarSourceId)
+          ? localRadarSignatureRef.current ?? ''
+          : ''
+
+      if (!hasSourceSafe(map, localRadarSourceId)) {
+        map.addSource(localRadarSourceId, {
+          type: 'raster',
+          tiles: [tileUrl],
+          tileSize: 256,
+          attribution:
+            '&copy; <a href="https://www.weather.gov/">NOAA / NWS</a>',
+        })
+      } else {
+        const source = getSourceSafe<
+          maplibregl.Source & { setTiles?: (tiles: string[]) => void }
+        >(map, localRadarSourceId)
+        if (existingSignature !== sourceSignature || radarView === 'local') {
+          source?.setTiles?.([tileUrl])
+          localRadarSignatureRef.current = sourceSignature
+        }
+      }
+
+      if (!hasLayerSafe(map, localRadarLayerId)) {
+        const beforeLayerId = hasLayerSafe(map, alertPolygonsFillLayerId)
+          ? alertPolygonsFillLayerId
+          : undefined
+
+        map.addLayer(
+          {
+            id: localRadarLayerId,
+            type: 'raster',
+            source: localRadarSourceId,
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'raster-opacity': radarOpacity,
+              'raster-fade-duration': 320,
+            },
+          },
+          beforeLayerId,
+        )
+      }
+
+      localRadarSignatureRef.current = sourceSignature
+      setLayerVisibility(map, localRadarLayerId, true)
+      setPaintPropertySafe(map, localRadarLayerId, 'raster-opacity', radarOpacity)
+
+      nudgeMapRender(map)
+    }
+
+    if (map.isStyleLoaded()) {
+      applyLocalRadarLayer()
+    } else {
+      map.once('load', applyLocalRadarLayer)
+    }
+  }, [
+    activeLayer,
+    localRadarDefinition,
+    nearestRadarSite,
+    radarOpacity,
+    radarView,
+    selectedLocalRadarTime,
+  ])
+
   const satelliteOverlayUrl =
     requestViewport && activeLayer === 'Satellite'
       ? buildSatelliteImageUrl(satelliteLayer, {
@@ -1815,48 +1991,54 @@ export function MapCanvas({
   const {
     activeFrame: activeSatelliteFrame,
     pendingFrame: pendingSatelliteFrame,
+    previousFrame: previousSatelliteFrame,
     promotePendingFrame: promotePendingSatelliteFrame,
   } = useBufferedRasterFrame(satelliteOverlayUrl, requestViewport)
-  const {
-    activeFrame: activeRegionalRadarFrame,
-    pendingFrame: pendingRegionalRadarFrame,
-    promotePendingFrame: promotePendingRegionalRadarFrame,
-  } = useBufferedRasterFrame(regionalRadarOverlayUrl, requestViewport)
-  const {
-    activeFrame: activeLocalRadarFrame,
-    pendingFrame: pendingLocalRadarFrame,
-    promotePendingFrame: promotePendingLocalRadarFrame,
-  } = useBufferedRasterFrame(localRadarOverlayUrl, requestViewport)
-  const projectedSpcFeatures =
-    mapRef.current &&
-    liveViewport &&
-    activeLayer === 'Forecast' &&
-    activeForecastOverlay === 'SPC Storm Risk'
-      ? projectPolygonFeatures(mapRef.current, spcFeatures)
-      : []
-  const projectedWinterFeatures =
-    mapRef.current &&
-    liveViewport &&
-    activeLayer === 'Forecast' &&
-    activeForecastOverlay === 'Winter'
-      ? projectPolygonFeatures(mapRef.current, winterFeatures)
-      : []
-  const projectedLocalStormReports =
-    mapRef.current && liveViewport && activeLayer === 'Radar' && showSpotterReports
-      ? projectPointFeatures(mapRef.current, localStormReports, (feature) => feature.coordinates)
-      : []
-  const projectedCameraFeeds =
-    mapRef.current && liveViewport && activeLayer === 'Radar' && showCameras
-      ? projectPointFeatures(mapRef.current, cameraFeeds, (feed) => feed.coordinates)
-      : []
-  const projectedSpotterNetworkFeatures =
-    mapRef.current && liveViewport && activeLayer === 'Radar' && showChasers
-      ? projectPointFeatures(
-          mapRef.current,
-          spotterNetworkFeatures,
-          (feature) => feature.coordinates,
-        )
-      : []
+  const projectedSpcFeatures = useMemo(
+    () =>
+      mapRef.current &&
+      liveViewport &&
+      activeLayer === 'Forecast' &&
+      activeForecastOverlay === 'SPC Storm Risk'
+        ? projectPolygonFeatures(mapRef.current, spcFeatures)
+        : [],
+    [activeForecastOverlay, activeLayer, liveViewport, spcFeatures],
+  )
+  const projectedWinterFeatures = useMemo(
+    () =>
+      mapRef.current &&
+      liveViewport &&
+      activeLayer === 'Forecast' &&
+      activeForecastOverlay === 'Winter'
+        ? projectPolygonFeatures(mapRef.current, winterFeatures)
+        : [],
+    [activeForecastOverlay, activeLayer, liveViewport, winterFeatures],
+  )
+  const projectedLocalStormReports = useMemo(
+    () =>
+      mapRef.current && liveViewport && activeLayer === 'Radar' && showSpotterReports
+        ? projectPointFeatures(mapRef.current, localStormReports, (feature) => feature.coordinates)
+        : [],
+    [activeLayer, liveViewport, localStormReports, showSpotterReports],
+  )
+  const projectedCameraFeeds = useMemo(
+    () =>
+      mapRef.current && liveViewport && activeLayer === 'Radar' && showCameras
+        ? projectPointFeatures(mapRef.current, cameraFeeds, (feed) => feed.coordinates)
+        : [],
+    [activeLayer, cameraFeeds, liveViewport, showCameras],
+  )
+  const projectedSpotterNetworkFeatures = useMemo(
+    () =>
+      mapRef.current && liveViewport && activeLayer === 'Radar' && showChasers
+        ? projectPointFeatures(
+            mapRef.current,
+            spotterNetworkFeatures,
+            (feature) => feature.coordinates,
+          )
+        : [],
+    [activeLayer, liveViewport, showChasers, spotterNetworkFeatures],
+  )
 
   const forwardOverlayWheelToMap = (event: React.WheelEvent<SVGSVGElement>) => {
     event.preventDefault()
@@ -1890,6 +2072,12 @@ export function MapCanvas({
       <div className="map-raster-stack" aria-hidden="true">
         {renderBufferedRasterFrame(
           mapRef.current,
+          previousSatelliteFrame,
+          satelliteOpacity,
+          'previous',
+        )}
+        {renderBufferedRasterFrame(
+          mapRef.current,
           activeSatelliteFrame ?? (pendingSatelliteFrame && !activeSatelliteFrame ? pendingSatelliteFrame : null),
           satelliteOpacity,
         )}
@@ -1900,34 +2088,6 @@ export function MapCanvas({
             src={pendingSatelliteFrame.url}
             alt=""
             onLoad={promotePendingSatelliteFrame}
-          />
-        ) : null}
-        {renderBufferedRasterFrame(
-          mapRef.current,
-          activeRegionalRadarFrame ?? (pendingRegionalRadarFrame && !activeRegionalRadarFrame ? pendingRegionalRadarFrame : null),
-          radarOpacity,
-        )}
-        {pendingRegionalRadarFrame && activeRegionalRadarFrame ? (
-          <img
-            key={`${pendingRegionalRadarFrame.url}-preload`}
-            className="map-raster-preload"
-            src={pendingRegionalRadarFrame.url}
-            alt=""
-            onLoad={promotePendingRegionalRadarFrame}
-          />
-        ) : null}
-        {renderBufferedRasterFrame(
-          mapRef.current,
-          activeLocalRadarFrame ?? (pendingLocalRadarFrame && !activeLocalRadarFrame ? pendingLocalRadarFrame : null),
-          radarOpacity,
-        )}
-        {pendingLocalRadarFrame && activeLocalRadarFrame ? (
-          <img
-            key={`${pendingLocalRadarFrame.url}-preload`}
-            className="map-raster-preload"
-            src={pendingLocalRadarFrame.url}
-            alt=""
-            onLoad={promotePendingLocalRadarFrame}
           />
         ) : null}
       </div>
@@ -1963,17 +2123,19 @@ export function MapCanvas({
                       alertPolygonsFillLayerId,
                       alertPolygonsLineLayerId,
                     ])
-                    const alertFeature =
+                    const clickedAlertFeatures =
                       alertLayers.length > 0
-                        ? prioritizeAlertFeature(
-                            map.queryRenderedFeatures(point, {
-                              layers: alertLayers,
-                            }),
-                          )
-                        : undefined
+                        ? map.queryRenderedFeatures(point, {
+                            layers: alertLayers,
+                          })
+                        : []
+                    const alertFeature =
+                      prioritizeAlertFeature(clickedAlertFeatures)
 
                     if (alertFeature) {
-                      onHazardSelectRef.current(buildAlertSelectionFromMapFeature(alertFeature))
+                      onHazardSelectRef.current(
+                        buildAlertSelectionFromMapFeatures(clickedAlertFeatures),
+                      )
                       return
                     }
                   }
@@ -2133,7 +2295,7 @@ export function MapCanvas({
       ) : null}
     </div>
   )
-}
+})
 
 function formatCompactTimestamp(value: unknown) {
   if (typeof value !== 'string' || value.length !== 12) {
@@ -2196,9 +2358,36 @@ function buildAlertNarrative(description: string, instruction: string) {
   return parts.join('\n\n')
 }
 
-function buildAlertSelectionFromMapFeature(
-  feature: maplibregl.MapGeoJSONFeature,
+function buildAlertSelectionFromMapFeatures(
+  features: maplibregl.MapGeoJSONFeature[],
 ): HazardSelection {
+  const feature =
+    prioritizeAlertFeature(features) ?? features[0]
+
+  if (!feature) {
+    return {
+      source: 'alerts',
+      title: 'Active alert',
+      subtitle: 'NWS active alert',
+      summary: 'Area description unavailable.',
+      detailLines: [],
+    }
+  }
+
+  const relatedAlerts = features
+    .map((item) => ({
+      id: String(item.properties?.id ?? ''),
+      title: String(item.properties?.event ?? 'Active alert'),
+      subtitle: String(item.properties?.headline ?? 'NWS active alert'),
+      alertType: normalizeAlertType(String(item.properties?.alertType ?? '')),
+      accentColor: String(item.properties?.fillColor ?? '') || undefined,
+    }))
+    .filter((item) => item.id.length > 0)
+    .filter(
+      (item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index,
+    )
+    .sort((left, right) => getAlertTypePriority(right.alertType) - getAlertTypePriority(left.alertType))
+
   return {
     source: 'alerts',
     title: String(feature.properties?.event ?? 'Active alert'),
@@ -2206,6 +2395,7 @@ function buildAlertSelectionFromMapFeature(
     summary: String(
       feature.properties?.areaDescription ?? 'Area description unavailable.',
     ),
+    accentColor: String(feature.properties?.fillColor ?? '') || undefined,
     body: buildAlertNarrative(
       String(feature.properties?.description ?? ''),
       String(feature.properties?.instruction ?? ''),
@@ -2220,6 +2410,7 @@ function buildAlertSelectionFromMapFeature(
         ? [`Expires: ${formatIsoTimestamp(String(feature.properties.expires))}`]
         : []),
     ],
+    relatedAlerts: relatedAlerts.length > 1 ? relatedAlerts : undefined,
   }
 }
 
@@ -2229,11 +2420,14 @@ function useBufferedRasterFrame(
 ) {
   const [activeFrame, setActiveFrame] = useState<BufferedRasterFrame | null>(null)
   const [pendingFrame, setPendingFrame] = useState<BufferedRasterFrame | null>(null)
+  const [previousFrame, setPreviousFrame] = useState<BufferedRasterFrame | null>(null)
+  const clearPreviousFrameTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!targetUrl || !viewport) {
       setActiveFrame(null)
       setPendingFrame(null)
+      setPreviousFrame(null)
       return
     }
 
@@ -2255,18 +2449,36 @@ function useBufferedRasterFrame(
     setPendingFrame(nextFrame)
   }, [activeFrame, pendingFrame, targetUrl, viewport])
 
+  useEffect(() => {
+    return () => {
+      if (clearPreviousFrameTimeoutRef.current !== null) {
+        window.clearTimeout(clearPreviousFrameTimeoutRef.current)
+      }
+    }
+  }, [])
+
   function promotePendingFrame() {
     if (!pendingFrame) {
       return
     }
 
+    if (clearPreviousFrameTimeoutRef.current !== null) {
+      window.clearTimeout(clearPreviousFrameTimeoutRef.current)
+    }
+
+    setPreviousFrame(activeFrame)
     setActiveFrame(pendingFrame)
     setPendingFrame(null)
+    clearPreviousFrameTimeoutRef.current = window.setTimeout(() => {
+      setPreviousFrame(null)
+      clearPreviousFrameTimeoutRef.current = null
+    }, 260)
   }
 
   return {
     activeFrame,
     pendingFrame,
+    previousFrame,
     promotePendingFrame,
   }
 }
@@ -2275,6 +2487,7 @@ function renderBufferedRasterFrame(
   map: maplibregl.Map | null,
   frame: BufferedRasterFrame | null,
   opacity: number,
+  variant: 'active' | 'previous' = 'active',
 ) {
   if (!map || !frame) {
     return null
@@ -2282,8 +2495,12 @@ function renderBufferedRasterFrame(
 
   return (
     <img
-      key={frame.url}
-      className="map-raster-image"
+      key={`${frame.url}-${variant}`}
+      className={
+        variant === 'previous'
+          ? 'map-raster-image map-raster-image-previous'
+          : 'map-raster-image'
+      }
       src={frame.url}
       alt=""
       style={buildRasterFrameStyle(map, frame.viewport, opacity)}
@@ -2378,25 +2595,9 @@ function addRadarSiteIcon(map: maplibregl.Map) {
   })
 }
 
-function buildRegionalRadarImageUrl(
+function buildRegionalRadarTileUrl(
   radarProduct: 'base' | 'composite',
-  {
-    west,
-    south,
-    east,
-    north,
-    width,
-    height,
-    time,
-  }: {
-    west: number
-    south: number
-    east: number
-    north: number
-    width: number
-    height: number
-    time?: string | null
-  },
+  time?: string | null,
 ) {
   const refreshBucket = Math.floor(Date.now() / 120000)
   const layerName =
@@ -2404,29 +2605,17 @@ function buildRegionalRadarImageUrl(
   const timeParam = time ? `&time=${encodeURIComponent(time)}` : ''
   const cacheKey = time ? time : String(refreshBucket)
 
-  return `https://opengeo.ncep.noaa.gov/geoserver/conus/${layerName}/wms?service=WMS&version=1.1.1&request=GetMap&layers=${layerName}&styles=radar_reflectivity&format=image/png&transparent=true&srs=EPSG:3857&bbox=${west},${south},${east},${north}&width=${width}&height=${height}${timeParam}&frame=${encodeURIComponent(cacheKey)}`
+  return `https://opengeo.ncep.noaa.gov/geoserver/conus/${layerName}/wms?service=WMS&version=1.1.1&request=GetMap&layers=${layerName}&styles=radar_reflectivity&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256${timeParam}&frame=${encodeURIComponent(cacheKey)}`
 }
 
-function buildLocalRadarImageUrl({
+function buildLocalRadarTileUrl({
   nearestRadarSite,
   localRadarDefinition,
   selectedLocalRadarTime,
-  west,
-  south,
-  east,
-  north,
-  width,
-  height,
 }: {
   nearestRadarSite: RadarSite
   localRadarDefinition: RadarProductDefinition | null
   selectedLocalRadarTime: string | null
-  west: number
-  south: number
-  east: number
-  north: number
-  width: number
-  height: number
 }) {
   const refreshBucket = Math.floor(Date.now() / 120000)
   const siteWorkspace = nearestRadarSite.id.toLowerCase()
@@ -2440,7 +2629,7 @@ function buildLocalRadarImageUrl({
     return ''
   }
 
-  return `https://opengeo.ncep.noaa.gov/geoserver/${siteWorkspace}/ows?service=WMS&version=1.1.1&request=GetMap&layers=${layerName}&styles=${styleName}&format=image/png&transparent=true&srs=EPSG:3857&bbox=${west},${south},${east},${north}&width=${width}&height=${height}${timeParam}&refresh=${refreshBucket}`
+  return `https://opengeo.ncep.noaa.gov/geoserver/${siteWorkspace}/ows?service=WMS&version=1.1.1&request=GetMap&layers=${layerName}&styles=${styleName}&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256${timeParam}&refresh=${refreshBucket}`
 }
 
 function removeStormTrack(map: maplibregl.Map) {
@@ -2844,6 +3033,23 @@ function setPaintPropertySafe(
   }
 }
 
+function setFilterSafe(
+  map: maplibregl.Map,
+  layerId: string,
+  filter: unknown[] | null,
+) {
+  if (!hasLayerSafe(map, layerId)) {
+    return
+  }
+
+  try {
+    map.setFilter(layerId, filter as maplibregl.FilterSpecification | null)
+    nudgeMapRender(map)
+  } catch {
+    return
+  }
+}
+
 function nudgeMapRender(map: maplibregl.Map) {
   try {
     const center = map.getCenter()
@@ -3023,8 +3229,14 @@ function prioritizeAlertFeature(
 }
 
 function getAlertFeaturePriority(feature: maplibregl.MapGeoJSONFeature) {
-  const alertType = String(feature.properties?.alertType ?? '')
+  const alertType = normalizeAlertType(String(feature.properties?.alertType ?? ''))
 
+  return getAlertTypePriority(alertType)
+}
+
+function getAlertTypePriority(
+  alertType: 'warning' | 'watch' | 'advisory' | 'statement',
+) {
   switch (alertType) {
     case 'warning':
       return 4
@@ -3036,5 +3248,21 @@ function getAlertFeaturePriority(feature: maplibregl.MapGeoJSONFeature) {
       return 1
     default:
       return 0
+  }
+}
+
+function normalizeAlertType(
+  alertType: string,
+): 'warning' | 'watch' | 'advisory' | 'statement' {
+  switch (alertType) {
+    case 'warning':
+      return 'warning'
+    case 'watch':
+      return 'watch'
+    case 'advisory':
+      return 'advisory'
+    case 'statement':
+    default:
+      return 'statement'
   }
 }

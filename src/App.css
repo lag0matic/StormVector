@@ -210,12 +210,17 @@
   object-fit: fill;
   pointer-events: none;
   transition:
-    opacity 180ms ease-out,
+    opacity 260ms ease-out,
     left 120ms linear,
     top 120ms linear,
     width 120ms linear,
     height 120ms linear;
   will-change: left, top, width, height, opacity;
+}
+
+.map-raster-image-previous {
+  z-index: 0;
+  animation: map-raster-fade-out 260ms ease-out forwards;
 }
 
 .map-raster-preload {
@@ -224,6 +229,16 @@
   height: 1px;
   opacity: 0;
   pointer-events: none;
+}
+
+@keyframes map-raster-fade-out {
+  from {
+    opacity: inherit;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 .map-raster-image-lightning {
@@ -535,6 +550,11 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.chip-stack {
+  min-width: 38px;
+  padding-inline: 10px;
 }
 
 .radar-controls {

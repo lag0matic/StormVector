@@ -91,10 +91,18 @@ export type HazardSelection = {
   title: string
   subtitle: string
   summary: string
+  accentColor?: string
   body?: string
   detailLines: string[]
   pageUrl?: string
   embedUrl?: string
+  relatedAlerts?: Array<{
+    id: string
+    title: string
+    subtitle: string
+    alertType: 'warning' | 'watch' | 'advisory' | 'statement'
+    accentColor?: string
+  }>
 }
 
 export type CameraSelection = {
