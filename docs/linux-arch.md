@@ -15,6 +15,7 @@ sudo pacman -S --needed \
   wget \
   file \
   openssl \
+  alsa-lib \
   appmenu-gtk-module \
   libappindicator-gtk3 \
   librsvg \
