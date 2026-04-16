@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import './App.css'
 import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
@@ -2650,6 +2651,11 @@ function formatCardinalDirection(bearing: number) {
 }
 
 async function playAudibleAlertTone(tone: 'warning' | 'watch') {
+  try {
+    await invoke('play_alert_tone', { tone })
+    return
+  } catch {}
+
   const audioContext = getSharedAlertAudioContext()
 
   if (!audioContext) {
