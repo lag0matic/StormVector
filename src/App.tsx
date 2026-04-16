@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
-import { useCameraFeeds } from './hooks/useCameraFeeds'
 import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
 import { useLocationWeather } from './hooks/useLocationWeather'
@@ -14,14 +13,12 @@ import { useSpcOutlookPolygons } from './hooks/useSpcOutlookPolygons'
 import { useStormTrackPlaces } from './hooks/useStormTrackPlaces'
 import { useWinterOutlookPolygons } from './hooks/useWinterOutlookPolygons'
 import { geocodeLocation } from './services/geocode'
-import type { CameraFeedInput } from './services/cameras'
 import {
   defaultSatelliteLayers,
   type SatelliteLayerId,
 } from './services/satellite'
 import type {
   AlertFeature,
-  CameraSelection,
   HazardSelection,
   LocalStormReportFeature,
 } from './types/weather'
@@ -89,7 +86,6 @@ type ReportTypeFilters = Record<
   LocalStormReportFeature['reportCategory'],
   boolean
 >
-type CameraStateFilters = Record<string, boolean>
 type StormTrackArrival = {
   label: string
   etaLabel: string
@@ -97,21 +93,11 @@ type StormTrackArrival = {
 }
 type SidePanelTab = 'forecast' | 'hazards'
 type ThemeMode = 'light' | 'dark'
-type CustomCameraDraft = {
-  name: string
-  latitude: string
-  longitude: string
-  pageUrl: string
-  imageUrl: string
-  embedUrl: string
-}
 const storageKeys = {
   homeLocation: 'radar-desktop:home-location',
   favoriteLocations: 'radar-desktop:favorite-locations',
-  customCameraFeeds: 'radar-desktop:custom-camera-feeds',
   layerOpacity: 'radar-desktop:layer-opacity',
   alertTypeFilters: 'radar-desktop:alert-type-filters',
-  cameraStateFilters: 'radar-desktop:camera-state-filters',
   reportTypeFilters: 'radar-desktop:report-type-filters',
   audibleAlertSettings: 'radar-desktop:audible-alert-settings',
   themeMode: 'radar-desktop:theme-mode',
@@ -155,9 +141,6 @@ function App() {
   const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>(() =>
     readStoredJson<SavedLocation[]>(storageKeys.favoriteLocations, []),
   )
-  const [customCameraFeeds, setCustomCameraFeeds] = useState<CameraFeedInput[]>(() =>
-    readStoredJson<CameraFeedInput[]>(storageKeys.customCameraFeeds, []),
-  )
   const [layerOpacity, setLayerOpacity] = useState(() =>
     normalizeLayerOpacity(
       readStoredJson(storageKeys.layerOpacity, defaultLayerOpacity),
@@ -165,9 +148,6 @@ function App() {
   )
   const [alertTypeFilters, setAlertTypeFilters] = useState<AlertTypeFilters>(() =>
     readStoredJson(storageKeys.alertTypeFilters, defaultAlertTypeFilters),
-  )
-  const [cameraStateFilters, setCameraStateFilters] = useState<CameraStateFilters>(() =>
-    readStoredJson(storageKeys.cameraStateFilters, {}),
   )
   const [reportTypeFilters, setReportTypeFilters] = useState<ReportTypeFilters>(() =>
     normalizeReportTypeFilters(
@@ -203,7 +183,6 @@ function App() {
   const [selectedSatelliteFrameIndex, setSelectedSatelliteFrameIndex] = useState(0)
   const [satellitePlaybackRunning, setSatellitePlaybackRunning] = useState(false)
   const [followLatestSatelliteFrame, setFollowLatestSatelliteFrame] = useState(true)
-  const [showCameras, setShowCameras] = useState(false)
   const [showSpotterReports, setShowSpotterReports] = useState(false)
   const [playbackWindowMinutes, setPlaybackWindowMinutes] = useState<30 | 60 | 120>(30)
   const [playbackSpeed, setPlaybackSpeed] =
@@ -215,15 +194,6 @@ function App() {
   const [selectedWinterProduct, setSelectedWinterProduct] =
     useState<(typeof winterProducts)[number]['id']>('snowfall')
   const [selectedHazard, setSelectedHazard] = useState<HazardSelection | null>(null)
-  const [selectedCamera, setSelectedCamera] = useState<CameraSelection | null>(null)
-  const [customCameraDraft, setCustomCameraDraft] = useState<CustomCameraDraft>({
-    name: '',
-    latitude: '',
-    longitude: '',
-    pageUrl: '',
-    imageUrl: '',
-    embedUrl: '',
-  })
   const [selectedLocalRadarFrameIndex, setSelectedLocalRadarFrameIndex] = useState(0)
   const [localPlaybackRunning, setLocalPlaybackRunning] = useState(false)
   const [followLatestFrame, setFollowLatestFrame] = useState(true)
@@ -271,10 +241,6 @@ function App() {
     features: localStormReports,
     loading: localStormReportsLoading,
   } = useLocalStormReports(showSpotterReports)
-  const {
-    feeds: cameraFeeds,
-    loading: cameraFeedsLoading,
-  } = useCameraFeeds(showCameras, customCameraFeeds)
   const {
     features: spcFeatures,
   } = useSpcOutlookPolygons(selectedSpcDay)
@@ -405,28 +371,6 @@ function App() {
   const visibleAlertFeatures = useMemo(
     () => alertFeatures.filter((feature) => alertTypeFilters[feature.alertType]),
     [alertFeatures, alertTypeFilters],
-  )
-  const availableCameraStates = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          cameraFeeds
-            .map((feed) => feed.state)
-            .filter((state): state is string => Boolean(state)),
-        ),
-      ).sort(),
-    [cameraFeeds],
-  )
-  const normalizedCameraStateFilters = useMemo(
-    () => normalizeCameraStateFilters(availableCameraStates, cameraStateFilters),
-    [availableCameraStates, cameraStateFilters],
-  )
-  const visibleCameraFeeds = useMemo(
-    () =>
-      cameraFeeds.filter((feed) =>
-        isCameraVisibleForState(feed.state, normalizedCameraStateFilters),
-      ),
-    [cameraFeeds, normalizedCameraStateFilters],
   )
   const recentLocalStormReports = useMemo(
     () =>
@@ -582,12 +526,6 @@ function App() {
             : nearestRadarError ?? null
       }
 
-      if (showCameras) {
-        return cameraFeedsLoading
-          ? 'Loading cameras...'
-          : `${visibleCameraFeeds.length} cameras`
-      }
-
       if (showSpotterReports) {
         return localStormReportsLoading
           ? 'Loading recent reports...'
@@ -614,7 +552,6 @@ function App() {
     activeForecastOverlay,
     activeLayer,
     activeRadarSite,
-    cameraFeedsLoading,
     localStormReportsLoading,
     nearestRadarError,
     nearestRadarLoading,
@@ -624,10 +561,8 @@ function App() {
     selectedSpcDay,
     selectedWinterDay,
     selectedWinterProduct,
-    showCameras,
     showSpotterReports,
     visibleAlertFeatures.length,
-    visibleCameraFeeds.length,
   ])
   const stackedHazardAlerts = useMemo(
     () => selectedHazard?.source === 'alerts' ? selectedHazard.relatedAlerts ?? [] : [],
@@ -663,13 +598,6 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      storageKeys.customCameraFeeds,
-      JSON.stringify(customCameraFeeds),
-    )
-  }, [customCameraFeeds])
-
-  useEffect(() => {
-    window.localStorage.setItem(
       storageKeys.layerOpacity,
       JSON.stringify(layerOpacity),
     )
@@ -681,13 +609,6 @@ function App() {
       JSON.stringify(alertTypeFilters),
     )
   }, [alertTypeFilters])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      storageKeys.cameraStateFilters,
-      JSON.stringify(cameraStateFilters),
-    )
-  }, [cameraStateFilters])
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -991,7 +912,6 @@ function App() {
         setSelectedCoordinates(result.coordinates)
         setShouldRecenterMap(true)
         setSelectedHazard(null)
-        setSelectedCamera(null)
         setSearchText(result.label)
       } catch (searchError) {
         const message =
@@ -1039,13 +959,7 @@ function App() {
     [commitOpacityValue],
   )
   const handleHazardSelect = useCallback((selection: HazardSelection) => {
-    setSelectedCamera(null)
     setSelectedHazard(selection)
-    setSidePanelTab('hazards')
-  }, [])
-  const handleCameraSelect = useCallback((selection: CameraSelection) => {
-    setSelectedHazard(null)
-    setSelectedCamera(selection)
     setSidePanelTab('hazards')
   }, [])
   const handleStormTrackOriginSet = useCallback((coordinates: [number, number]) => {
@@ -1056,7 +970,6 @@ function App() {
     setSelectedCoordinates(coordinates)
     setShouldRecenterMap(false)
     setSelectedHazard(null)
-    setSelectedCamera(null)
     setSearchText(`${coordinates[1].toFixed(3)}, ${coordinates[0].toFixed(3)}`)
     setSearchError(null)
   }, [])
@@ -1125,7 +1038,6 @@ function App() {
                             setSelectedCoordinates(homeLocation.coordinates)
                             setShouldRecenterMap(true)
                             setSelectedHazard(null)
-                            setSelectedCamera(null)
                             setSearchText(homeLocation.label)
                             setSearchError(null)
                             setShowLocationMenu(false)
@@ -1168,7 +1080,6 @@ function App() {
                                 setSelectedCoordinates(location.coordinates)
                                 setShouldRecenterMap(true)
                                 setSelectedHazard(null)
-                                setSelectedCamera(null)
                                 setSearchText(location.label)
                                 setSearchError(null)
                                 setShowLocationMenu(false)
@@ -1230,185 +1141,6 @@ function App() {
                           {mode === 'light' ? 'Light' : 'Dark'}
                         </button>
                       ))}
-                    </div>
-                  </div>
-
-                  <div className="popover-section">
-                    <p className="card-label">Camera states</p>
-                    <div className="chip-group">
-                      {availableCameraStates.length > 0 ? (
-                        availableCameraStates.map((state) => (
-                          <button
-                            key={state}
-                            type="button"
-                            className={
-                              normalizedCameraStateFilters[state] ? 'chip active' : 'chip'
-                            }
-                            onClick={() =>
-                              setCameraStateFilters((current) => ({
-                                ...normalizeCameraStateFilters(
-                                  availableCameraStates,
-                                  current,
-                                ),
-                                [state]:
-                                  !normalizeCameraStateFilters(
-                                    availableCameraStates,
-                                    current,
-                                  )[state],
-                              }))
-                            }
-                          >
-                            {state}
-                          </button>
-                        ))
-                      ) : (
-                        <p className="muted compact-copy">
-                          Turn on Cameras once to load available states.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="popover-section">
-                    <div className="settings-row">
-                      <div>
-                        <p className="card-label">Custom cameras</p>
-                        <strong>{customCameraFeeds.length} saved</strong>
-                      </div>
-                      <button
-                        type="button"
-                        className="inline-action"
-                        onClick={() =>
-                          setCustomCameraDraft((current) => ({
-                            ...current,
-                            latitude: selectedCoordinates[1].toFixed(4),
-                            longitude: selectedCoordinates[0].toFixed(4),
-                          }))
-                        }
-                      >
-                        Use point
-                      </button>
-                    </div>
-
-                    <div className="custom-camera-form">
-                      <input
-                        type="text"
-                        placeholder="Camera name"
-                        value={customCameraDraft.name}
-                        onChange={(event) =>
-                          setCustomCameraDraft((current) => ({
-                            ...current,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                      <div className="custom-camera-grid">
-                        <input
-                          type="text"
-                          placeholder="Latitude"
-                          value={customCameraDraft.latitude}
-                          onChange={(event) =>
-                            setCustomCameraDraft((current) => ({
-                              ...current,
-                              latitude: event.target.value,
-                            }))
-                          }
-                        />
-                        <input
-                          type="text"
-                          placeholder="Longitude"
-                          value={customCameraDraft.longitude}
-                          onChange={(event) =>
-                            setCustomCameraDraft((current) => ({
-                              ...current,
-                              longitude: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="Image URL"
-                        value={customCameraDraft.imageUrl}
-                        onChange={(event) =>
-                          setCustomCameraDraft((current) => ({
-                            ...current,
-                            imageUrl: event.target.value,
-                          }))
-                        }
-                      />
-                      <input
-                        type="text"
-                        placeholder="Page URL"
-                        value={customCameraDraft.pageUrl}
-                        onChange={(event) =>
-                          setCustomCameraDraft((current) => ({
-                            ...current,
-                            pageUrl: event.target.value,
-                          }))
-                        }
-                      />
-                      <input
-                        type="text"
-                        placeholder="Embed URL (optional)"
-                        value={customCameraDraft.embedUrl}
-                        onChange={(event) =>
-                          setCustomCameraDraft((current) => ({
-                            ...current,
-                            embedUrl: event.target.value,
-                          }))
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="inline-action"
-                        onClick={() => {
-                          const nextCamera = buildCustomCameraFromDraft(customCameraDraft)
-
-                          if (!nextCamera) {
-                            return
-                          }
-
-                          setCustomCameraFeeds((current) =>
-                            upsertCustomCamera(current, nextCamera),
-                          )
-                          setCustomCameraDraft({
-                            name: '',
-                            latitude: '',
-                            longitude: '',
-                            pageUrl: '',
-                            imageUrl: '',
-                            embedUrl: '',
-                          })
-                        }}
-                      >
-                        Save camera
-                      </button>
-                    </div>
-
-                    <div className="favorite-list">
-                      {customCameraFeeds.length > 0 ? (
-                        customCameraFeeds.map((camera) => (
-                          <div key={camera.id} className="favorite-item">
-                            <span className="muted compact-copy">{camera.name}</span>
-                            <button
-                              type="button"
-                              className="inline-action"
-                              onClick={() =>
-                                setCustomCameraFeeds((current) =>
-                                  current.filter((item) => item.id !== camera.id),
-                                )
-                              }
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="muted">
-                          Add one-off cameras here when a provider API does not exist.
-                        </p>
-                      )}
                     </div>
                   </div>
 
@@ -1675,8 +1407,6 @@ function App() {
               alertFeatures={alertFeatures}
               alertTypeFilters={alertTypeFilters}
               localStormReports={recentLocalStormReports}
-              cameraFeeds={visibleCameraFeeds}
-              showCameras={showCameras}
               showSpotterReports={showSpotterReports}
               spcFeatures={spcFeatures}
               winterFeatures={winterFeatures}
@@ -1690,7 +1420,6 @@ function App() {
               stormTrackSpeedMph={stormTrackSpeedMph}
               stormTrackResetKey={stormTrackResetKey}
               onHazardSelect={handleHazardSelect}
-              onCameraSelect={handleCameraSelect}
               onStormTrackOriginSet={handleStormTrackOriginSet}
               onStormTrackEndSet={setStormTrackEnd}
               onMapClick={handleMapClick}
@@ -1749,13 +1478,6 @@ function App() {
                 <div className="control-tier">
                   <span className="control-label">Overlays</span>
                   <div className="segmented-group" aria-label="Radar overlays">
-                    <button
-                      type="button"
-                      className={showCameras ? 'chip active' : 'chip'}
-                      onClick={() => setShowCameras((current) => !current)}
-                    >
-                      Cameras{visibleCameraFeeds.length > 0 ? ` (${visibleCameraFeeds.length})` : ''}
-                    </button>
                     <button
                       type="button"
                       className={showSpotterReports ? 'chip active' : 'chip'}
@@ -2310,45 +2032,6 @@ function App() {
                         </a>
                       ) : null}
                     </article>
-                  ) : selectedCamera ? (
-                    <article className="hazard-card">
-                      <div>
-                        <p className="card-label">Selected camera</p>
-                        <strong>{selectedCamera.title}</strong>
-                      </div>
-                      <p className="compact-copy">{selectedCamera.summary}</p>
-                      <div className="hazard-detail-list">
-                        <span>Provider: {selectedCamera.provider}</span>
-                      </div>
-                      {selectedCamera.embedUrl ? (
-                        <div className="camera-embed-shell">
-                          <iframe
-                            src={selectedCamera.embedUrl}
-                            title={selectedCamera.title}
-                            loading="lazy"
-                            allow="autoplay; fullscreen"
-                          />
-                        </div>
-                      ) : selectedCamera.imageUrl ? (
-                        <div className="camera-embed-shell">
-                          <img
-                            src={selectedCamera.imageUrl}
-                            alt={selectedCamera.title}
-                            className="camera-still-image"
-                          />
-                        </div>
-                      ) : null}
-                      {selectedCamera.pageUrl ? (
-                        <a
-                          className="camera-link"
-                          href={selectedCamera.pageUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open source page
-                        </a>
-                      ) : null}
-                    </article>
                   ) : showSpotterReports && nearbyReports.length > 0 ? (
                     nearbyReports.map(({ report, distanceMiles, ageMinutes }) => (
                       <button
@@ -2474,27 +2157,6 @@ function normalizeReportTypeFilters(value: ReportTypeFilters) {
   }
 }
 
-function normalizeCameraStateFilters(
-  availableStates: string[],
-  value: CameraStateFilters,
-) {
-  return availableStates.reduce<CameraStateFilters>((accumulator, state) => {
-    accumulator[state] = value[state] ?? true
-    return accumulator
-  }, {})
-}
-
-function isCameraVisibleForState(
-  state: string | undefined,
-  filters: CameraStateFilters,
-) {
-  if (!state) {
-    return true
-  }
-
-  return filters[state] ?? true
-}
-
 function clampPercentage(value: number, fallback: number) {
   if (!Number.isFinite(value)) {
     return fallback
@@ -2519,40 +2181,6 @@ function upsertFavoriteLocation(
   }
 
   return [nextLocation, ...current].slice(0, 6)
-}
-
-function buildCustomCameraFromDraft(
-  draft: CustomCameraDraft,
-): CameraFeedInput | null {
-  const latitude = Number(draft.latitude)
-  const longitude = Number(draft.longitude)
-
-  if (
-    !draft.name.trim() ||
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    (!draft.imageUrl.trim() && !draft.embedUrl.trim() && !draft.pageUrl.trim())
-  ) {
-    return null
-  }
-
-  return {
-    id: `custom-${draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${latitude.toFixed(4)}-${longitude.toFixed(4)}`,
-    name: draft.name.trim(),
-    coordinates: [longitude, latitude],
-    pageUrl: draft.pageUrl.trim() || undefined,
-    imageUrl: draft.imageUrl.trim() || undefined,
-    embedUrl: draft.embedUrl.trim() || undefined,
-    description: 'Saved custom camera.',
-  }
-}
-
-function upsertCustomCamera(
-  current: CameraFeedInput[],
-  nextCamera: CameraFeedInput,
-) {
-  const remaining = current.filter((camera) => camera.id !== nextCamera.id)
-  return [nextCamera, ...remaining].slice(0, 24)
 }
 
 function formatFrameLabel(frame: string) {

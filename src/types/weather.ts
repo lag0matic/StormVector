@@ -105,15 +105,6 @@ export type HazardSelection = {
   }>
 }
 
-export type CameraSelection = {
-  title: string
-  provider: string
-  summary: string
-  pageUrl?: string
-  imageUrl?: string
-  embedUrl?: string
-}
-
 export type ServiceCard = {
   name: string
   role: string

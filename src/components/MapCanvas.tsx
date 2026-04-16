@@ -9,10 +9,8 @@ import {
   buildSatelliteImageUrl,
   type SatelliteLayerId,
 } from '../services/satellite'
-import type { CameraFeed } from '../services/cameras'
 import type {
   AlertFeature,
-  CameraSelection,
   HazardSelection,
   LocalStormReportFeature,
   SpcOutlookFeature,
@@ -47,8 +45,6 @@ type MapCanvasProps = {
     statement: boolean
   }
   localStormReports: LocalStormReportFeature[]
-  cameraFeeds: CameraFeed[]
-  showCameras: boolean
   showSpotterReports: boolean
   spcFeatures: SpcOutlookFeature[]
   winterFeatures: WinterOutlookFeature[]
@@ -64,7 +60,6 @@ type MapCanvasProps = {
   onMapClick: (coordinates: [number, number]) => void
   onRadarSiteSelect: (siteId: string) => void
   onHazardSelect: (selection: HazardSelection) => void
-  onCameraSelect: (selection: CameraSelection) => void
   onStormTrackOriginSet: (coordinates: [number, number]) => void
   onStormTrackEndSet: (coordinates: [number, number]) => void
 }
@@ -111,14 +106,6 @@ const alertPolygonsFillLayerId = 'nws-alert-polygons-fill'
 const alertPolygonsLineLayerId = 'nws-alert-polygons-line'
 const localStormReportsSourceId = 'local-storm-reports'
 const localStormReportsLayerId = 'local-storm-reports-layer'
-const cameraFeedsSourceId = 'camera-feeds'
-const cameraFeedsLayerId = 'camera-feeds-layer'
-const spcPolygonsSourceId = 'spc-outlook-polygons'
-const spcPolygonsFillLayerId = 'spc-outlook-polygons-fill'
-const spcPolygonsLineLayerId = 'spc-outlook-polygons-line'
-const winterPolygonsSourceId = 'winter-outlook-polygons'
-const winterPolygonsFillLayerId = 'winter-outlook-polygons-fill'
-const winterPolygonsLineLayerId = 'winter-outlook-polygons-line'
 const stormTrackSourceId = 'storm-track-source'
 const stormTrackLineLayerId = 'storm-track-line'
 const stormTrackPointLayerId = 'storm-track-point'
@@ -147,8 +134,6 @@ export const MapCanvas = memo(function MapCanvas({
   alertFeatures,
   alertTypeFilters,
   localStormReports,
-  cameraFeeds,
-  showCameras,
   showSpotterReports,
   spcFeatures,
   winterFeatures = [],
@@ -164,7 +149,6 @@ export const MapCanvas = memo(function MapCanvas({
   onMapClick,
   onRadarSiteSelect,
   onHazardSelect,
-  onCameraSelect,
   onStormTrackOriginSet,
   onStormTrackEndSet,
 }: MapCanvasProps) {
@@ -186,7 +170,6 @@ export const MapCanvas = memo(function MapCanvas({
   const onMapClickRef = useRef(onMapClick)
   const onRadarSiteSelectRef = useRef(onRadarSiteSelect)
   const onHazardSelectRef = useRef(onHazardSelect)
-  const onCameraSelectRef = useRef(onCameraSelect)
   const activeLayerRef = useRef(activeLayer)
   const activeForecastOverlayRef = useRef(activeForecastOverlay)
   const radarViewRef = useRef(radarView)
@@ -204,7 +187,6 @@ export const MapCanvas = memo(function MapCanvas({
   onMapClickRef.current = onMapClick
   onRadarSiteSelectRef.current = onRadarSiteSelect
   onHazardSelectRef.current = onHazardSelect
-  onCameraSelectRef.current = onCameraSelect
   onStormTrackOriginSetRef.current = onStormTrackOriginSet
   onStormTrackEndSetRef.current = onStormTrackEndSet
   activeLayerRef.current = activeLayer
@@ -396,19 +378,8 @@ export const MapCanvas = memo(function MapCanvas({
       }
 
         const hazardLayers = [
-        ...(activeLayerRef.current === 'Radar' && showCameras
-          ? [cameraFeedsLayerId]
-          : []),
         ...(activeLayerRef.current === 'Radar' && showSpotterReports
           ? [localStormReportsLayerId]
-          : []),
-        ...(activeLayerRef.current === 'Forecast' &&
-        activeForecastOverlayRef.current === 'SPC Storm Risk'
-          ? [spcPolygonsFillLayerId, spcPolygonsLineLayerId]
-          : []),
-        ...(activeLayerRef.current === 'Forecast' &&
-        activeForecastOverlayRef.current === 'Winter'
-          ? [winterPolygonsFillLayerId, winterPolygonsLineLayerId]
           : []),
       ]
 
@@ -896,221 +867,6 @@ export const MapCanvas = memo(function MapCanvas({
       return
     }
 
-    const collection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-      type: 'FeatureCollection',
-      features: cameraFeeds.map((feed) => ({
-        type: 'Feature',
-        properties: {
-          id: feed.id,
-          name: feed.name,
-          provider: feed.provider,
-          pageUrl: feed.pageUrl ?? '',
-          imageUrl: feed.imageUrl ?? '',
-          embedUrl: feed.embedUrl ?? '',
-          description: feed.description ?? '',
-        },
-        geometry: {
-          type: 'Point',
-          coordinates: feed.coordinates,
-        },
-      })),
-    }
-
-    const applyCameraFeeds = () => {
-      if (!hasSourceSafe(map, cameraFeedsSourceId)) {
-        map.addSource(cameraFeedsSourceId, {
-          type: 'geojson',
-          data: collection,
-        })
-
-        map.addLayer({
-          id: cameraFeedsLayerId,
-          type: 'circle',
-          source: cameraFeedsSourceId,
-          paint: {
-            'circle-radius': 8,
-            'circle-color': '#f7fbff',
-            'circle-stroke-color': '#0f2533',
-            'circle-stroke-width': 2.5,
-            'circle-opacity': 0.98,
-            'circle-blur': 0.08,
-          },
-        })
-      } else {
-        const source = getSourceSafe<maplibregl.GeoJSONSource>(map, cameraFeedsSourceId)
-        source?.setData(collection)
-      }
-
-      setLayerVisibility(
-        map,
-        cameraFeedsLayerId,
-        activeLayer === 'Radar' && showCameras,
-      )
-      nudgeMapRender(map)
-    }
-
-    if (map.isStyleLoaded()) {
-      applyCameraFeeds()
-    } else {
-      map.once('load', applyCameraFeeds)
-    }
-  }, [activeLayer, cameraFeeds, showCameras])
-
-  useEffect(() => {
-    const map = mapRef.current
-
-    if (!map) {
-      return
-    }
-
-    const collection: GeoJSON.FeatureCollection<
-      GeoJSON.Polygon | GeoJSON.MultiPolygon
-    > = {
-      type: 'FeatureCollection',
-      features: spcFeatures.map((feature) => ({
-        type: 'Feature',
-        properties: {
-          id: feature.id,
-          category: feature.category,
-          valid: feature.valid,
-          expire: feature.expire,
-          fillColor: feature.fillColor,
-          lineColor: feature.lineColor,
-        },
-        geometry: feature.geometry,
-      })),
-    }
-
-    const applySpcPolygons = () => {
-      if (!(activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk')) {
-        removeLayerSafe(map, spcPolygonsLineLayerId)
-        removeLayerAndSourceSafe(map, spcPolygonsFillLayerId, spcPolygonsSourceId)
-        nudgeMapRender(map)
-        return
-      }
-
-      if (!hasSourceSafe(map, spcPolygonsSourceId)) {
-        map.addSource(spcPolygonsSourceId, {
-          type: 'geojson',
-          data: collection,
-        })
-
-        map.addLayer({
-          id: spcPolygonsFillLayerId,
-          type: 'fill',
-          source: spcPolygonsSourceId,
-          paint: {
-            'fill-color': ['get', 'fillColor'],
-            'fill-opacity': polygonOpacity,
-          },
-        })
-
-        map.addLayer({
-          id: spcPolygonsLineLayerId,
-          type: 'line',
-          source: spcPolygonsSourceId,
-          paint: {
-            'line-color': ['get', 'lineColor'],
-            'line-width': 2,
-            'line-opacity': 0.95,
-          },
-        })
-      } else {
-        const source = getSourceSafe<maplibregl.GeoJSONSource>(map, spcPolygonsSourceId)
-        source?.setData(collection)
-      }
-      nudgeMapRender(map)
-    }
-
-    if (map.isStyleLoaded()) {
-      applySpcPolygons()
-    } else {
-      map.once('load', applySpcPolygons)
-    }
-  }, [activeForecastOverlay, activeLayer, spcFeatures])
-
-  useEffect(() => {
-    const map = mapRef.current
-
-    if (!map) {
-      return
-    }
-
-    const collection: GeoJSON.FeatureCollection<
-      GeoJSON.Polygon | GeoJSON.MultiPolygon
-    > = {
-      type: 'FeatureCollection',
-      features: winterFeatures.map((feature) => ({
-        type: 'Feature',
-        properties: {
-          id: feature.id,
-          product: feature.product,
-          outlook: feature.outlook,
-          validTime: feature.validTime,
-          issueTime: feature.issueTime,
-          snippet: feature.snippet,
-          fillColor: feature.fillColor,
-          lineColor: feature.lineColor,
-        },
-        geometry: feature.geometry,
-      })),
-    }
-
-    const applyWinterPolygons = () => {
-      if (!(activeLayer === 'Forecast' && activeForecastOverlay === 'Winter')) {
-        removeLayerSafe(map, winterPolygonsLineLayerId)
-        removeLayerAndSourceSafe(map, winterPolygonsFillLayerId, winterPolygonsSourceId)
-        nudgeMapRender(map)
-        return
-      }
-
-      if (!hasSourceSafe(map, winterPolygonsSourceId)) {
-        map.addSource(winterPolygonsSourceId, {
-          type: 'geojson',
-          data: collection,
-        })
-
-        map.addLayer({
-          id: winterPolygonsFillLayerId,
-          type: 'fill',
-          source: winterPolygonsSourceId,
-          paint: {
-            'fill-color': ['get', 'fillColor'],
-            'fill-opacity': polygonOpacity,
-          },
-        })
-
-        map.addLayer({
-          id: winterPolygonsLineLayerId,
-          type: 'line',
-          source: winterPolygonsSourceId,
-          paint: {
-            'line-color': ['get', 'lineColor'],
-            'line-width': 2,
-            'line-opacity': 0.92,
-          },
-        })
-      } else {
-        const source = getSourceSafe<maplibregl.GeoJSONSource>(map, winterPolygonsSourceId)
-        source?.setData(collection)
-      }
-      nudgeMapRender(map)
-    }
-
-    if (map.isStyleLoaded()) {
-      applyWinterPolygons()
-    } else {
-      map.once('load', applyWinterPolygons)
-    }
-  }, [activeForecastOverlay, activeLayer, winterFeatures])
-
-  useEffect(() => {
-    const map = mapRef.current
-
-    if (!map) {
-      return
-    }
-
     setPaintPropertySafe(map, alertPolygonsFillLayerId, 'fill-opacity', [
       'match',
       ['get', 'alertType'],
@@ -1120,8 +876,6 @@ export const MapCanvas = memo(function MapCanvas({
       watchOpacity,
       polygonOpacity,
     ])
-    setPaintPropertySafe(map, spcPolygonsFillLayerId, 'fill-opacity', polygonOpacity)
-    setPaintPropertySafe(map, winterPolygonsFillLayerId, 'fill-opacity', polygonOpacity)
   }, [polygonOpacity, warningOpacity, watchOpacity])
 
   useEffect(() => {
@@ -1224,31 +978,6 @@ export const MapCanvas = memo(function MapCanvas({
         localStormReportsLayerId,
         activeLayer === 'Radar' && showSpotterReports,
       )
-      setLayerVisibility(
-        map,
-        cameraFeedsLayerId,
-        activeLayer === 'Radar' && showCameras,
-      )
-      setLayerVisibility(
-        map,
-        spcPolygonsFillLayerId,
-        activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
-      )
-      setLayerVisibility(
-        map,
-        spcPolygonsLineLayerId,
-        activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
-      )
-      setLayerVisibility(
-        map,
-        winterPolygonsFillLayerId,
-        activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
-      )
-      setLayerVisibility(
-        map,
-        winterPolygonsLineLayerId,
-        activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
-      )
     }
 
     if (map.isStyleLoaded()) {
@@ -1256,7 +985,7 @@ export const MapCanvas = memo(function MapCanvas({
     } else {
       map.once('load', syncLayerVisibility)
     }
-  }, [activeForecastOverlay, activeLayer, radarView, showCameras, showSpotterReports])
+  }, [activeForecastOverlay, activeLayer, radarView, showSpotterReports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1288,17 +1017,8 @@ export const MapCanvas = memo(function MapCanvas({
       const layers = getExistingLayerIds(map, [
         alertPolygonsFillLayerId,
         alertPolygonsLineLayerId,
-        ...(activeLayer === 'Radar' && showCameras
-          ? [cameraFeedsLayerId]
-          : []),
         ...(activeLayer === 'Radar' && showSpotterReports
           ? [localStormReportsLayerId]
-          : []),
-        ...(activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk'
-          ? [spcPolygonsFillLayerId, spcPolygonsLineLayerId]
-          : []),
-        ...(activeLayer === 'Forecast' && activeForecastOverlay === 'Winter'
-          ? [winterPolygonsFillLayerId, winterPolygonsLineLayerId]
           : []),
       ])
 
@@ -1317,7 +1037,7 @@ export const MapCanvas = memo(function MapCanvas({
       map.off('mousemove', handleHazardHover)
       map.getCanvas().style.cursor = ''
     }
-  }, [activeForecastOverlay, activeLayer, showCameras, showSpotterReports])
+  }, [activeForecastOverlay, activeLayer, showSpotterReports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1428,172 +1148,6 @@ export const MapCanvas = memo(function MapCanvas({
       map.off('click', handleReportClick)
     }
   }, [showSpotterReports])
-
-  useEffect(() => {
-    const map = mapRef.current
-    const popup = alertPopupRef.current
-
-    if (!map || !popup) {
-      return
-    }
-
-    const handleCameraClick = (event: maplibregl.MapMouseEvent) => {
-      if (
-        activeLayerRef.current !== 'Radar' ||
-        !showCameras ||
-        !hasLayerSafe(map, cameraFeedsLayerId)
-      ) {
-        return
-      }
-
-      const feature = map.queryRenderedFeatures(event.point, {
-        layers: [cameraFeedsLayerId],
-      })[0]
-
-      if (!feature) {
-        return
-      }
-
-      popup
-        .setLngLat(event.lngLat)
-        .setHTML(
-          `<strong>${feature.properties?.name ?? 'Camera'}</strong><div>${feature.properties?.provider ?? 'Unknown provider'}</div><div>${feature.properties?.description ?? ''}</div>`,
-        )
-        .addTo(map)
-
-      onCameraSelectRef.current({
-        title: String(feature.properties?.name ?? 'Camera'),
-        provider: String(feature.properties?.provider ?? 'Unknown'),
-        summary: String(
-          feature.properties?.description ?? 'Live camera feed available.',
-        ),
-        pageUrl: String(feature.properties?.pageUrl ?? '') || undefined,
-        imageUrl: String(feature.properties?.imageUrl ?? '') || undefined,
-        embedUrl: String(feature.properties?.embedUrl ?? '') || undefined,
-      })
-    }
-
-    map.on('click', handleCameraClick)
-
-    return () => {
-      map.off('click', handleCameraClick)
-    }
-  }, [showCameras])
-
-  useEffect(() => {
-    const map = mapRef.current
-    const popup = spcPopupRef.current
-
-    if (!map || !popup) {
-      return
-    }
-
-    const handleSpcClick = (event: maplibregl.MapMouseEvent) => {
-      if (!(activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk')) {
-        return
-      }
-
-      const spcLayers = getExistingLayerIds(map, [
-        spcPolygonsFillLayerId,
-        spcPolygonsLineLayerId,
-      ])
-      const feature =
-        spcLayers.length > 0
-          ? map.queryRenderedFeatures(event.point, {
-              layers: spcLayers,
-            })[0]
-          : undefined
-
-      if (!feature) {
-        popup.remove()
-        return
-      }
-
-      popup
-        .setLngLat(event.lngLat)
-        .setHTML(
-          `<strong>SPC Day ${selectedSpcDay} ${feature.properties?.category ?? 'Outlook'}</strong>`,
-        )
-        .addTo(map)
-
-      onHazardSelectRef.current({
-        source: 'spc',
-        title: `SPC Day ${selectedSpcDay} ${String(feature.properties?.category ?? 'Outlook')}`,
-        subtitle: 'Storm Prediction Center categorical outlook',
-        summary: 'This polygon shows the current SPC severe-weather risk area for the selected day.',
-        detailLines: [
-          `Valid: ${formatCompactTimestamp(feature.properties?.valid)}`,
-          `Expires: ${formatCompactTimestamp(feature.properties?.expire)}`,
-        ],
-      })
-    }
-
-    map.on('click', handleSpcClick)
-
-    return () => {
-      map.off('click', handleSpcClick)
-      popup.remove()
-    }
-  }, [activeForecastOverlay, activeLayer, selectedSpcDay])
-
-  useEffect(() => {
-    const map = mapRef.current
-    const popup = spcPopupRef.current
-
-    if (!map || !popup) {
-      return
-    }
-
-    const handleWinterClick = (event: maplibregl.MapMouseEvent) => {
-      if (!(activeLayer === 'Forecast' && activeForecastOverlay === 'Winter')) {
-        return
-      }
-
-      const winterLayers = getExistingLayerIds(map, [
-        winterPolygonsFillLayerId,
-        winterPolygonsLineLayerId,
-      ])
-      const feature =
-        winterLayers.length > 0
-          ? map.queryRenderedFeatures(event.point, {
-              layers: winterLayers,
-            })[0]
-          : undefined
-
-      if (!feature) {
-        popup.remove()
-        return
-      }
-
-      popup
-        .setLngLat(event.lngLat)
-        .setHTML(
-          `<strong>WPC Day ${selectedWinterDay} ${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'}</strong>`,
-        )
-        .addTo(map)
-
-      onHazardSelectRef.current({
-        source: 'winter',
-        title: `WPC Day ${selectedWinterDay} ${selectedWinterProduct === 'snowfall' ? 'Snowfall' : 'Freezing Rain'}`,
-        subtitle: String(feature.properties?.outlook ?? 'Winter outlook'),
-        summary: String(
-          feature.properties?.snippet ??
-            'Probability of exceeding local winter storm warning criteria.',
-        ),
-        detailLines: [
-          `Valid: ${String(feature.properties?.validTime ?? 'Unavailable')}`,
-          `Issued: ${String(feature.properties?.issueTime ?? 'Unavailable')}`,
-        ],
-      })
-    }
-
-    map.on('click', handleWinterClick)
-
-    return () => {
-      map.off('click', handleWinterClick)
-      popup.remove()
-    }
-  }, [activeForecastOverlay, activeLayer, selectedWinterDay, selectedWinterProduct])
 
   useEffect(() => {
     if (shouldRecenterMap) {
@@ -2786,36 +2340,6 @@ function setLayerVisibility(
   }
 
   setLayoutPropertySafe(map, layerId, 'visibility', isVisible ? 'visible' : 'none')
-}
-
-function removeLayerSafe(map: maplibregl.Map, layerId: string) {
-  if (!hasLayerSafe(map, layerId)) {
-    return
-  }
-
-  try {
-    map.removeLayer(layerId)
-  } catch {
-    return
-  }
-}
-
-function removeLayerAndSourceSafe(
-  map: maplibregl.Map,
-  layerId: string,
-  sourceId: string,
-) {
-  removeLayerSafe(map, layerId)
-
-  if (!hasSourceSafe(map, sourceId)) {
-    return
-  }
-
-  try {
-    map.removeSource(sourceId)
-  } catch {
-    return
-  }
 }
 
 function setLayoutPropertySafe(
