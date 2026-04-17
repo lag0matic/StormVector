@@ -55,6 +55,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
+const appVersion = 'v1.3.0'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -283,6 +284,7 @@ function App() {
   const [stormTrackEnd, setStormTrackEnd] = useState<[number, number] | null>(null)
   const [stormTrackSpeedMph, setStormTrackSpeedMph] = useState(30)
   const [stormTrackResetKey, setStormTrackResetKey] = useState(0)
+  const [mapRefreshKey, setMapRefreshKey] = useState(0)
   const seenAudibleAlertsRef = useRef<Set<string>>(new Set())
   const audibleAlertScopeRef = useRef<string | null>(null)
   const { data: weather, error, source } =
@@ -1489,6 +1491,7 @@ function App() {
               stormTrackEnd={stormTrackEnd}
               stormTrackSpeedMph={stormTrackSpeedMph}
               stormTrackResetKey={stormTrackResetKey}
+              mapRefreshKey={mapRefreshKey}
               onHazardSelect={handleHazardSelect}
               onStormTrackOriginSet={handleStormTrackOriginSet}
               onStormTrackEndSet={setStormTrackEnd}
@@ -1670,6 +1673,13 @@ function App() {
                   </button>
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="inline-action"
+                onClick={() => setMapRefreshKey((current) => current + 1)}
+              >
+                Refresh map
+              </button>
             </div>
             </div>
 
@@ -1960,6 +1970,10 @@ function App() {
                 </span>
               </div>
               </footer>
+            </div>
+
+            <div className="map-floating map-floating-bottom-right">
+              <div className="version-pill map-glass">{appVersion}</div>
             </div>
           </div>
         </section>

@@ -54,6 +54,7 @@ type MapCanvasProps = {
   stormTrackEnd: [number, number] | null
   stormTrackSpeedMph: number
   stormTrackResetKey: number
+  mapRefreshKey: number
   onMapClick: (coordinates: [number, number]) => void
   onRadarSiteSelect: (siteId: string) => void
   onHazardSelect: (selection: HazardSelection) => void
@@ -146,6 +147,7 @@ export const MapCanvas = memo(function MapCanvas({
   stormTrackEnd,
   stormTrackSpeedMph,
   stormTrackResetKey,
+  mapRefreshKey,
   onMapClick,
   onRadarSiteSelect,
   onHazardSelect,
@@ -181,6 +183,7 @@ export const MapCanvas = memo(function MapCanvas({
   const stormTrackOriginRef = useRef(stormTrackOrigin)
   const stormTrackEndRef = useRef(stormTrackEnd)
   const stormTrackSpeedRef = useRef(stormTrackSpeedMph)
+  const alertTypeFiltersRef = useRef(alertTypeFilters)
 
   onMapClickRef.current = onMapClick
   onRadarSiteSelectRef.current = onRadarSiteSelect
@@ -194,6 +197,7 @@ export const MapCanvas = memo(function MapCanvas({
   stormTrackOriginRef.current = stormTrackOrigin
   stormTrackEndRef.current = stormTrackEnd
   stormTrackSpeedRef.current = stormTrackSpeedMph
+  alertTypeFiltersRef.current = alertTypeFilters
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -670,6 +674,8 @@ export const MapCanvas = memo(function MapCanvas({
     }
 
     const applyAlertPolygons = () => {
+      const nextFilter = buildAlertTypeFilter(alertTypeFiltersRef.current)
+
       if (!hasSourceSafe(map, alertPolygonsSourceId)) {
         map.addSource(alertPolygonsSourceId, {
           type: 'geojson',
@@ -712,6 +718,8 @@ export const MapCanvas = memo(function MapCanvas({
       const visibility = 'visible'
       setLayoutPropertySafe(map, alertPolygonsFillLayerId, 'visibility', visibility)
       setLayoutPropertySafe(map, alertPolygonsLineLayerId, 'visibility', visibility)
+      setFilterSafe(map, alertPolygonsFillLayerId, nextFilter)
+      setFilterSafe(map, alertPolygonsLineLayerId, nextFilter)
       nudgeMapRender(map)
     }
 
@@ -729,14 +737,7 @@ export const MapCanvas = memo(function MapCanvas({
       return
     }
 
-    const enabledAlertTypes = Object.entries(alertTypeFilters)
-      .filter(([, enabled]) => enabled)
-      .map(([type]) => type)
-
-    const nextFilter: unknown[] | null =
-      enabledAlertTypes.length > 0
-        ? ['in', ['get', 'alertType'], ['literal', enabledAlertTypes]]
-        : ['==', ['get', 'alertType'], '__none__']
+    const nextFilter = buildAlertTypeFilter(alertTypeFilters)
 
     setFilterSafe(map, alertPolygonsFillLayerId, nextFilter)
     setFilterSafe(map, alertPolygonsLineLayerId, nextFilter)
@@ -1608,6 +1609,176 @@ export const MapCanvas = memo(function MapCanvas({
       ),
     )
   }, [stormTrackEnd, stormTrackOrigin, stormTrackSpeedMph, trackToolEnabled, stormTrackResetKey])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map || mapRefreshKey === 0) {
+      return
+    }
+
+    const alertSource = getSourceSafe<maplibregl.GeoJSONSource>(map, alertPolygonsSourceId)
+    const spcSource = getSourceSafe<maplibregl.GeoJSONSource>(map, spcPolygonsSourceId)
+    const winterSource = getSourceSafe<maplibregl.GeoJSONSource>(map, winterPolygonsSourceId)
+    const reportsSource = getSourceSafe<maplibregl.GeoJSONSource>(map, localStormReportsSourceId)
+
+    const alertCollection: GeoJSON.FeatureCollection<
+      GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > = {
+      type: 'FeatureCollection',
+      features: alertFeatures.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          alertType: feature.alertType,
+          event: feature.event,
+          headline: feature.headline,
+          description: feature.description,
+          instruction: feature.instruction,
+          effective: feature.effective,
+          expires: feature.expires,
+          severity: feature.severity,
+          urgency: feature.urgency,
+          areaDescription: feature.areaDescription,
+          fillColor: feature.fillColor,
+          lineColor: feature.lineColor,
+        },
+        geometry: feature.geometry,
+      })),
+    }
+
+    const spcCollection: GeoJSON.FeatureCollection<
+      GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > = {
+      type: 'FeatureCollection',
+      features: spcFeatures.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          category: feature.category,
+          valid: feature.valid,
+          expire: feature.expire,
+          fillColor: feature.fillColor,
+          lineColor: feature.lineColor,
+        },
+        geometry: feature.geometry,
+      })),
+    }
+
+    const winterCollection: GeoJSON.FeatureCollection<
+      GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > = {
+      type: 'FeatureCollection',
+      features: winterFeatures.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          product: feature.product,
+          outlook: feature.outlook,
+          validTime: feature.validTime,
+          issueTime: feature.issueTime,
+          snippet: feature.snippet,
+          fillColor: feature.fillColor,
+          lineColor: feature.lineColor,
+        },
+        geometry: feature.geometry,
+      })),
+    }
+
+    const reportsCollection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+      type: 'FeatureCollection',
+      features: localStormReports.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          eventType: feature.eventType,
+          reportCategory: feature.reportCategory,
+          city: feature.city,
+          county: feature.county,
+          state: feature.state,
+          source: feature.source,
+          remark: feature.remark,
+          magnitude: feature.magnitude,
+          qualifier: feature.qualifier,
+          valid: feature.valid,
+          ageMinutes: feature.ageMinutes,
+          fillColor: feature.fillColor,
+          strokeColor: feature.strokeColor,
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: feature.coordinates,
+        },
+      })),
+    }
+
+    alertSource?.setData(alertCollection)
+    spcSource?.setData(spcCollection)
+    winterSource?.setData(winterCollection)
+    reportsSource?.setData(reportsCollection)
+
+    const nextAlertFilter = buildAlertTypeFilter(alertTypeFilters)
+    setFilterSafe(map, alertPolygonsFillLayerId, nextAlertFilter)
+    setFilterSafe(map, alertPolygonsLineLayerId, nextAlertFilter)
+    setPaintPropertySafe(map, alertPolygonsFillLayerId, 'fill-opacity', [
+      'match',
+      ['get', 'alertType'],
+      'warning',
+      warningOpacity,
+      'watch',
+      watchOpacity,
+      polygonOpacity,
+    ])
+
+    setLayerVisibility(map, alertPolygonsFillLayerId, true)
+    setLayerVisibility(map, alertPolygonsLineLayerId, true)
+    setLayerVisibility(
+      map,
+      spcPolygonsFillLayerId,
+      activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
+    )
+    setLayerVisibility(
+      map,
+      spcPolygonsLineLayerId,
+      activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
+    )
+    setLayerVisibility(
+      map,
+      winterPolygonsFillLayerId,
+      activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
+    )
+    setLayerVisibility(
+      map,
+      winterPolygonsLineLayerId,
+      activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
+    )
+    setLayerVisibility(
+      map,
+      localStormReportsLayerId,
+      activeLayer === 'Radar' && showSpotterReports,
+    )
+
+    try {
+      map.resize()
+    } catch {
+      // ignore
+    }
+
+    nudgeMapRender(map)
+  }, [
+    activeForecastOverlay,
+    activeLayer,
+    alertFeatures,
+    alertTypeFilters,
+    localStormReports,
+    mapRefreshKey,
+    polygonOpacity,
+    showSpotterReports,
+    spcFeatures,
+    warningOpacity,
+    watchOpacity,
+    winterFeatures,
+  ])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2526,6 +2697,27 @@ function setFilterSafe(
   } catch {
     return
   }
+}
+
+function buildAlertTypeFilter(alertTypeFilters: MapCanvasProps['alertTypeFilters']) {
+  const enabledAlertTypes = (Object.entries(alertTypeFilters) as Array<
+    [keyof MapCanvasProps['alertTypeFilters'], boolean]
+  >)
+    .filter(([, enabled]) => enabled)
+    .map(([type]) => type)
+
+  if (enabledAlertTypes.length === 4) {
+    return null
+  }
+
+  if (enabledAlertTypes.length === 0) {
+    return ['==', ['get', 'alertType'], '__none__']
+  }
+
+  return [
+    'any',
+    ...enabledAlertTypes.map((type) => ['==', ['get', 'alertType'], type]),
+  ]
 }
 
 function nudgeMapRender(map: maplibregl.Map) {

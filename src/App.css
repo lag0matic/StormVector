@@ -388,6 +388,11 @@
   width: min(760px, calc(100% - 280px));
 }
 
+.map-floating-bottom-right {
+  right: 20px;
+  bottom: 18px;
+}
+
 .map-glass {
   background: color-mix(in srgb, var(--panel) 84%, transparent);
   backdrop-filter: blur(12px);
@@ -614,6 +619,15 @@
 .inline-action:disabled {
   cursor: not-allowed;
   opacity: 0.56;
+}
+
+.version-pill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .source-note,
@@ -922,7 +936,8 @@
   .map-floating-top-left,
   .map-floating-top-right,
   .map-floating-bottom-left,
-  .map-floating-bottom-center {
+  .map-floating-bottom-center,
+  .map-floating-bottom-right {
     position: static;
     transform: none;
     max-width: 100%;
