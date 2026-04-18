@@ -55,7 +55,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.3.0'
+const appVersion = 'v1.3.1'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -2002,6 +2002,38 @@ function App() {
             </div>
           </section>
 
+          <section className="panel current-conditions-panel">
+            <div className="panel-heading current-conditions-heading">
+              <div>
+                <p className="eyebrow">Current Conditions</p>
+                <h3>Live at Selected Point</h3>
+              </div>
+              <span className="badge">{weather.current.lastUpdated}</span>
+            </div>
+            <div className="current-conditions-grid">
+              <article className="current-condition-card">
+                <p className="card-label">Feels Like</p>
+                <strong>{weather.current.feelsLike}</strong>
+              </article>
+              <article className="current-condition-card">
+                <p className="card-label">Wind</p>
+                <strong>{weather.current.wind}</strong>
+              </article>
+              <article className="current-condition-card">
+                <p className="card-label">Sky</p>
+                <strong>{weather.current.sky}</strong>
+              </article>
+              <article className="current-condition-card">
+                <p className="card-label">Precip</p>
+                <strong>{weather.current.precip}</strong>
+              </article>
+            </div>
+            <div className="sun-row">
+              <span>Sunrise {weather.sun.sunrise}</span>
+              <span>Sunset {weather.sun.sunset}</span>
+            </div>
+          </section>
+
           <section className="panel side-panel">
             <div className="panel-heading side-panel-heading">
               <div className="chip-group" aria-label="Side panel tabs">
@@ -2057,14 +2089,42 @@ function App() {
             </div>
 
             {sidePanelTab === 'forecast' ? (
-              <div className="forecast-grid compact-forecast-grid">
-                {weather.forecast.map((period) => (
-                  <article className="forecast-card" key={period.name}>
-                    <p className="card-label">{period.name}</p>
-                    <strong>{period.temperature}</strong>
-                    <p className="compact-copy">{period.summary}</p>
-                  </article>
-                ))}
+              <div className="stack">
+                {weather.nextHours.length > 0 ? (
+                  <section className="hourly-strip">
+                    <div className="panel-heading hourly-strip-heading">
+                      <div>
+                        <p className="eyebrow">Next 3 Hours</p>
+                        <h3>Short-Term Outlook</h3>
+                      </div>
+                    </div>
+                    <div className="hourly-grid">
+                      {weather.nextHours.map((period) => (
+                        <article className="hourly-card" key={period.label}>
+                          <p className="card-label">{period.label}</p>
+                          <strong>{period.temperature}</strong>
+                          <p className="compact-copy">{period.condition}</p>
+                          <div className="hourly-detail-list">
+                            <span>Feels {period.feelsLike}</span>
+                            <span>{period.wind}</span>
+                            <span>{period.precip}</span>
+                            {period.secondary ? <span>{period.secondary}</span> : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <div className="forecast-grid compact-forecast-grid">
+                  {weather.forecast.map((period) => (
+                    <article className="forecast-card" key={period.name}>
+                      <p className="card-label">{period.name}</p>
+                      <strong>{period.temperature}</strong>
+                      <p className="compact-copy">{period.summary}</p>
+                    </article>
+                  ))}
+                </div>
               </div>
             ) : (
               <>

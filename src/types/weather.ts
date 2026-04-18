@@ -4,6 +4,16 @@ export type ForecastPeriod = {
   summary: string
 }
 
+export type HourlyForecastPeriod = {
+  label: string
+  condition: string
+  temperature: string
+  feelsLike: string
+  wind: string
+  precip: string
+  secondary?: string
+}
+
 export type HazardCard = {
   type: string
   title: string
@@ -119,7 +129,17 @@ export type LocationWeather = {
   current: {
     temperature: string
     summary: string
+    feelsLike: string
+    wind: string
+    sky: string
+    precip: string
+    lastUpdated: string
   }
+  sun: {
+    sunrise: string
+    sunset: string
+  }
+  nextHours: HourlyForecastPeriod[]
   forecast: ForecastPeriod[]
   hazards: HazardCard[]
   radar: {
