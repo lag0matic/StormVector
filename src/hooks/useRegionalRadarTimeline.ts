@@ -23,7 +23,7 @@ export function useRegionalRadarTimeline(
 
   useEffect(() => {
     const controller = new AbortController()
-    let intervalId: number | null = null
+    let timeoutId: number | null = null
 
     const loadFrames = async (forceRefresh = false) => {
       if (!forceRefresh) {
@@ -58,18 +58,21 @@ export function useRegionalRadarTimeline(
           loading: false,
           error: error instanceof Error ? error.message : 'Regional radar refresh failed.',
         }))
+      } finally {
+        if (!controller.signal.aborted) {
+          timeoutId = window.setTimeout(() => {
+            void loadFrames(true)
+          }, REGIONAL_RADAR_POLL_MS)
+        }
       }
     }
 
     void loadFrames(false)
-    intervalId = window.setInterval(() => {
-      void loadFrames(true)
-    }, REGIONAL_RADAR_POLL_MS)
 
     return () => {
       controller.abort()
-      if (intervalId !== null) {
-        window.clearInterval(intervalId)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
       }
     }
   }, [product])

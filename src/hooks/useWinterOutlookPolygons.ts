@@ -26,6 +26,7 @@ type WinterOutlookState = {
 export function useWinterOutlookPolygons(
   product: 'snowfall' | 'freezingRain',
   day: 1 | 2 | 3 | 4,
+  enabled = true,
 ): WinterOutlookState {
   const [state, setState] = useState<WinterOutlookState>({
     features: [],
@@ -34,6 +35,15 @@ export function useWinterOutlookPolygons(
   })
 
   useEffect(() => {
+    if (!enabled) {
+      setState({
+        features: [],
+        loading: false,
+        error: null,
+      })
+      return
+    }
+
     const controller = new AbortController()
 
     setState((current) => ({
@@ -81,7 +91,7 @@ export function useWinterOutlookPolygons(
       })
 
     return () => controller.abort()
-  }, [day, product])
+  }, [day, enabled, product])
 
   return state
 }

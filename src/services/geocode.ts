@@ -41,7 +41,9 @@ export type GeocodeResult = {
 const reversePlaceCache = new Map<string, GeocodeResult | null>()
 
 const CENSUS_BENCHMARK = 'Public_AR_Current'
+const censusJsonpTimeoutMs = 3500
 const reverseGeocodeTimeoutMs = 2200
+const reversePlaceCacheMaxEntries = 120
 
 export function geocodeLocation(query: string): Promise<GeocodeResult> {
   const trimmedQuery = query.trim()
@@ -72,11 +74,15 @@ function fetchCensusJsonp<T>(url: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const callbackName = `censusJsonp_${crypto.randomUUID().replace(/-/g, '')}`
     const script = document.createElement('script')
+    let timeoutId: number | null = null
     const callbackRegistry = window as Window &
       typeof globalThis & {
         [key: string]: unknown
       }
     const cleanup = () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
       delete callbackRegistry[callbackName]
       script.remove()
     }
@@ -93,6 +99,10 @@ function fetchCensusJsonp<T>(url: string): Promise<T> {
 
     script.src = `${url}&callback=${callbackName}`
     document.body.appendChild(script)
+    timeoutId = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('Location search timed out. Please try another query.'))
+    }, censusJsonpTimeoutMs)
   })
 }
 
@@ -177,7 +187,20 @@ export async function reverseGeocodePlace(
     coordinates: [longitude, latitude] as [number, number],
   }
   reversePlaceCache.set(cacheKey, result)
+  trimCache(reversePlaceCache, reversePlaceCacheMaxEntries)
   return result
+}
+
+function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value
+
+    if (oldestKey === undefined) {
+      return
+    }
+
+    cache.delete(oldestKey)
+  }
 }
 
 function simplifyPlaceLabel(displayName: string) {

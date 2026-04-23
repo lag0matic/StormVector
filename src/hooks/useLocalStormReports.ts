@@ -28,6 +28,7 @@ export function useLocalStormReports(enabled: boolean): LocalStormReportsState {
     }
 
     const controller = new AbortController()
+    let timeoutId: number | null = null
 
     const loadReports = async (background = false) => {
       if (!background) {
@@ -60,17 +61,22 @@ export function useLocalStormReports(enabled: boolean): LocalStormReportsState {
           loading: false,
           error: error instanceof Error ? error.message : 'LSR refresh failed.',
         }))
+      } finally {
+        if (!controller.signal.aborted) {
+          timeoutId = window.setTimeout(() => {
+            void loadReports(true)
+          }, LSR_POLL_MS)
+        }
       }
     }
 
     void loadReports(false)
-    const intervalId = window.setInterval(() => {
-      void loadReports(true)
-    }, LSR_POLL_MS)
 
     return () => {
       controller.abort()
-      window.clearInterval(intervalId)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
     }
   }, [enabled])
 

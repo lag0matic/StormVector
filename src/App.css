@@ -182,6 +182,18 @@
   height: 100%;
 }
 
+.map-loading {
+  display: grid;
+  min-height: 520px;
+  height: 100%;
+  place-items: center;
+  border-radius: 20px;
+  color: var(--muted);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(77, 147, 171, 0.18), transparent 34%),
+    var(--panel);
+}
+
 .map-surface {
   position: relative;
   flex: 1;
@@ -283,16 +295,6 @@
   width: 14px;
   height: 14px;
   padding: 0;
-}
-
-.map-point-marker.camera {
-  width: 10px;
-  height: 10px;
-  padding: 0;
-  background: rgba(247, 251, 255, 0.92);
-  border-width: 1.5px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
-  opacity: 0.9;
 }
 
 .map-point-marker.chaser {
@@ -839,41 +841,6 @@
   background: var(--card-strong);
 }
 
-.camera-embed-shell {
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--card-strong);
-  min-height: 180px;
-}
-
-.camera-embed-shell iframe {
-  display: block;
-  width: 100%;
-  height: 220px;
-  border: 0;
-  background: #000;
-}
-
-.camera-still-image {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: 280px;
-  object-fit: cover;
-  background: #000;
-}
-
-.camera-link {
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 0.84rem;
-}
-
-.camera-link:hover {
-  text-decoration: underline;
-}
-
 .settings-row,
 .favorite-item,
 .slider-row {
@@ -887,27 +854,6 @@
 .slider-group {
   display: grid;
   gap: 8px;
-}
-
-.custom-camera-form {
-  display: grid;
-  gap: 8px;
-}
-
-.custom-camera-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.custom-camera-form input {
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--input);
-  color: var(--text);
-  font: inherit;
 }
 
 .favorite-item {

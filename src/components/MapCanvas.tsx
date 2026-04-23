@@ -160,6 +160,7 @@ export const MapCanvas = memo(function MapCanvas({
   const [projectedTrackLabels, setProjectedTrackLabels] = useState<
     ProjectedTrackLabel[]
   >([])
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -184,20 +185,41 @@ export const MapCanvas = memo(function MapCanvas({
   const stormTrackEndRef = useRef(stormTrackEnd)
   const stormTrackSpeedRef = useRef(stormTrackSpeedMph)
   const alertTypeFiltersRef = useRef(alertTypeFilters)
+  const showSpotterReportsRef = useRef(showSpotterReports)
+  const initialCenterRef = useRef(center)
+  const initialThemeModeRef = useRef(themeMode)
 
-  onMapClickRef.current = onMapClick
-  onRadarSiteSelectRef.current = onRadarSiteSelect
-  onHazardSelectRef.current = onHazardSelect
-  onStormTrackOriginSetRef.current = onStormTrackOriginSet
-  onStormTrackEndSetRef.current = onStormTrackEndSet
-  activeLayerRef.current = activeLayer
-  activeForecastOverlayRef.current = activeForecastOverlay
-  radarViewRef.current = radarView
-  trackToolEnabledRef.current = trackToolEnabled
-  stormTrackOriginRef.current = stormTrackOrigin
-  stormTrackEndRef.current = stormTrackEnd
-  stormTrackSpeedRef.current = stormTrackSpeedMph
-  alertTypeFiltersRef.current = alertTypeFilters
+  useEffect(() => {
+    onMapClickRef.current = onMapClick
+    onRadarSiteSelectRef.current = onRadarSiteSelect
+    onHazardSelectRef.current = onHazardSelect
+    onStormTrackOriginSetRef.current = onStormTrackOriginSet
+    onStormTrackEndSetRef.current = onStormTrackEndSet
+    activeLayerRef.current = activeLayer
+    activeForecastOverlayRef.current = activeForecastOverlay
+    radarViewRef.current = radarView
+    trackToolEnabledRef.current = trackToolEnabled
+    stormTrackOriginRef.current = stormTrackOrigin
+    stormTrackEndRef.current = stormTrackEnd
+    stormTrackSpeedRef.current = stormTrackSpeedMph
+    alertTypeFiltersRef.current = alertTypeFilters
+    showSpotterReportsRef.current = showSpotterReports
+  }, [
+    activeForecastOverlay,
+    activeLayer,
+    alertTypeFilters,
+    onHazardSelect,
+    onMapClick,
+    onRadarSiteSelect,
+    onStormTrackEndSet,
+    onStormTrackOriginSet,
+    radarView,
+    stormTrackEnd,
+    stormTrackOrigin,
+    stormTrackSpeedMph,
+    showSpotterReports,
+    trackToolEnabled,
+  ])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -230,7 +252,7 @@ export const MapCanvas = memo(function MapCanvas({
             type: 'raster',
             source: lightBasemapSourceId,
             layout: {
-              visibility: themeMode === 'light' ? 'visible' : 'none',
+              visibility: initialThemeModeRef.current === 'light' ? 'visible' : 'none',
             },
           },
           {
@@ -238,12 +260,12 @@ export const MapCanvas = memo(function MapCanvas({
             type: 'raster',
             source: darkBasemapSourceId,
             layout: {
-              visibility: themeMode === 'dark' ? 'visible' : 'none',
+              visibility: initialThemeModeRef.current === 'dark' ? 'visible' : 'none',
             },
           },
         ],
       },
-      center,
+      center: initialCenterRef.current,
       zoom: 5.25,
       attributionControl: false,
     })
@@ -289,16 +311,6 @@ export const MapCanvas = memo(function MapCanvas({
           stormTrackSpeedRef.current,
         ),
       )
-      syncStormTrackLabelMarkers(
-        map,
-        stormTrackLabelMarkersRef.current,
-        activeStormTrackOrigin,
-        buildImmediateStormTrackMarkers(
-          activeStormTrackOrigin,
-          stormTrackPreviewEndRef.current,
-          stormTrackSpeedRef.current,
-        ),
-      )
     })
     map.on('mouseup', () => {
       const activeStormTrackOrigin = stormTrackOriginRef.current
@@ -328,16 +340,6 @@ export const MapCanvas = memo(function MapCanvas({
         map,
         activeStormTrackOrigin,
         stormTrackPreviewEndRef.current,
-        buildImmediateStormTrackMarkers(
-          activeStormTrackOrigin,
-          stormTrackPreviewEndRef.current,
-          stormTrackSpeedRef.current,
-        ),
-      )
-      syncStormTrackLabelMarkers(
-        map,
-        stormTrackLabelMarkersRef.current,
-        activeStormTrackOrigin,
         buildImmediateStormTrackMarkers(
           activeStormTrackOrigin,
           stormTrackPreviewEndRef.current,
@@ -380,7 +382,7 @@ export const MapCanvas = memo(function MapCanvas({
       }
 
         const hazardLayers = [
-        ...(activeLayerRef.current === 'Radar' && showSpotterReports
+        ...(activeLayerRef.current === 'Radar' && showSpotterReportsRef.current
           ? [localStormReportsLayerId]
           : []),
       ]
@@ -409,9 +411,10 @@ export const MapCanvas = memo(function MapCanvas({
       color: '#184f6b',
       scale: 1.1,
     })
-      .setLngLat(center)
+      .setLngLat(initialCenterRef.current)
       .addTo(map)
 
+    let viewportSyncFrame: number | null = null
     const syncRequestViewport = () => {
       if (!map.isStyleLoaded()) {
         return
@@ -423,18 +426,35 @@ export const MapCanvas = memo(function MapCanvas({
         setRequestViewport(snapshot)
       }
     }
+    const scheduleRequestViewportSync = () => {
+      if (viewportSyncFrame !== null) {
+        return
+      }
 
-    map.on('load', syncRequestViewport)
-    map.on('moveend', syncRequestViewport)
-    map.on('resize', syncRequestViewport)
-    window.requestAnimationFrame(syncRequestViewport)
+      viewportSyncFrame = window.requestAnimationFrame(() => {
+        viewportSyncFrame = null
+        syncRequestViewport()
+      })
+    }
+
+    map.on('load', scheduleRequestViewportSync)
+    map.on('move', scheduleRequestViewportSync)
+    map.on('moveend', scheduleRequestViewportSync)
+    map.on('resize', scheduleRequestViewportSync)
+    scheduleRequestViewportSync()
 
     mapRef.current = map
+    setMapInstance(map)
+    const stormTrackLabelMarkers = stormTrackLabelMarkersRef.current
 
     return () => {
-      map.off('load', syncRequestViewport)
-      map.off('moveend', syncRequestViewport)
-      map.off('resize', syncRequestViewport)
+      map.off('load', scheduleRequestViewportSync)
+      map.off('move', scheduleRequestViewportSync)
+      map.off('moveend', scheduleRequestViewportSync)
+      map.off('resize', scheduleRequestViewportSync)
+      if (viewportSyncFrame !== null) {
+        window.cancelAnimationFrame(viewportSyncFrame)
+      }
       radarPopupRef.current?.remove()
       radarPopupRef.current = null
       alertPopupRef.current?.remove()
@@ -443,9 +463,10 @@ export const MapCanvas = memo(function MapCanvas({
       markerRef.current = null
       setRequestViewport(null)
       setProjectedTrackLabels([])
-      clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
+      clearStormTrackLabelMarkers(stormTrackLabelMarkers)
       map.remove()
       mapRef.current = null
+      setMapInstance(null)
     }
   }, [])
 
@@ -634,11 +655,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applySites()
-    } else {
-      map.once('load', applySites)
-    }
+    return runWhenStyleLoaded(map, applySites)
   }, [activeLayer, radarSites, radarView, selectedRadarSiteId])
 
   useEffect(() => {
@@ -723,11 +740,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applyAlertPolygons()
-    } else {
-      map.once('load', applyAlertPolygons)
-    }
+    return runWhenStyleLoaded(map, applyAlertPolygons)
   }, [alertFeatures, polygonOpacity, warningOpacity, watchOpacity])
 
   useEffect(() => {
@@ -824,11 +837,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applySpcPolygons()
-    } else {
-      map.once('load', applySpcPolygons)
-    }
+    return runWhenStyleLoaded(map, applySpcPolygons)
   }, [activeForecastOverlay, activeLayer, polygonOpacity, spcFeatures])
 
   useEffect(() => {
@@ -921,11 +930,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applyWinterPolygons()
-    } else {
-      map.once('load', applyWinterPolygons)
-    }
+    return runWhenStyleLoaded(map, applyWinterPolygons)
   }, [activeForecastOverlay, activeLayer, polygonOpacity, winterFeatures])
 
   useEffect(() => {
@@ -996,11 +1001,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applyLocalStormReports()
-    } else {
-      map.once('load', applyLocalStormReports)
-    }
+    return runWhenStyleLoaded(map, applyLocalStormReports)
   }, [activeLayer, localStormReports, showSpotterReports])
 
   useEffect(() => {
@@ -1143,11 +1144,7 @@ export const MapCanvas = memo(function MapCanvas({
       )
     }
 
-    if (map.isStyleLoaded()) {
-      syncLayerVisibility()
-    } else {
-      map.once('load', syncLayerVisibility)
-    }
+    return runWhenStyleLoaded(map, syncLayerVisibility)
   }, [activeForecastOverlay, activeLayer, radarView, showSpotterReports])
 
   useEffect(() => {
@@ -1430,23 +1427,14 @@ export const MapCanvas = memo(function MapCanvas({
 
       removeStormTrack(map)
       syncStormTrackSource(map, stormTrackOrigin, stormTrackEnd, currentMarkers)
-      syncStormTrackLabelMarkers(
-        map,
-        stormTrackLabelMarkersRef.current,
-        stormTrackOrigin,
-        currentMarkers,
-      )
     }
 
-    if (map.isStyleLoaded()) {
-      runSync()
-    } else {
-      map.once('load', runSync)
-    }
+    return runWhenStyleLoaded(map, runSync)
   }, [
     stormTrackEnd,
     stormTrackOrigin,
     stormTrackResetKey,
+    stormTrackSpeedMph,
     trackToolEnabled,
   ])
 
@@ -1469,16 +1457,6 @@ export const MapCanvas = memo(function MapCanvas({
       map,
       stormTrackOrigin,
       stormTrackEnd,
-      buildImmediateStormTrackMarkers(
-        stormTrackOrigin,
-        stormTrackEnd,
-        stormTrackSpeedMph,
-      ),
-    )
-    syncStormTrackLabelMarkers(
-      map,
-      stormTrackLabelMarkersRef.current,
-      stormTrackOrigin,
       buildImmediateStormTrackMarkers(
         stormTrackOrigin,
         stormTrackEnd,
@@ -1853,11 +1831,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applyRegionalRadarLayer()
-    } else {
-      map.once('load', applyRegionalRadarLayer)
-    }
+    return runWhenStyleLoaded(map, applyRegionalRadarLayer)
   }, [activeLayer, radarOpacity, radarProduct, radarView, selectedRegionalRadarTime])
 
   useEffect(() => {
@@ -1962,11 +1936,7 @@ export const MapCanvas = memo(function MapCanvas({
       nudgeMapRender(map)
     }
 
-    if (map.isStyleLoaded()) {
-      applyLocalRadarLayer()
-    } else {
-      map.once('load', applyLocalRadarLayer)
-    }
+    return runWhenStyleLoaded(map, applyLocalRadarLayer)
   }, [
     activeLayer,
     localRadarDefinition,
@@ -2000,13 +1970,13 @@ export const MapCanvas = memo(function MapCanvas({
       <div ref={containerRef} className="map-canvas" />
       <div className="map-raster-stack" aria-hidden="true">
         {renderBufferedRasterFrame(
-          mapRef.current,
+          mapInstance,
           previousSatelliteFrame,
           satelliteOpacity,
           'previous',
         )}
         {renderBufferedRasterFrame(
-          mapRef.current,
+          mapInstance,
           activeSatelliteFrame ?? (pendingSatelliteFrame && !activeSatelliteFrame ? pendingSatelliteFrame : null),
           satelliteOpacity,
         )}
@@ -2276,26 +2246,6 @@ function renderBufferedRasterFrame(
   )
 }
 
-/*
-function buildSpotterNetworkSelection(
-  feature: SpotterNetworkFeature,
-): HazardSelection {
-  return {
-    source: 'spotter',
-    title: feature.label,
-    subtitle: `Spotter Network • ${feature.platform}`,
-    summary: feature.note || 'Affiliated live streamer location.',
-    detailLines: [
-      `Updated: ${feature.timestamp}`,
-      `Motion: ${feature.heading}`,
-      `Position: ${feature.coordinates[1].toFixed(3)}, ${feature.coordinates[0].toFixed(3)}`,
-    ],
-    pageUrl: feature.pageUrl,
-    embedUrl: feature.embedUrl,
-  }
-}
-
-*/
 function addRadarSiteIcon(map: maplibregl.Map) {
   if (map.hasImage(radarSiteIconId)) {
     return
@@ -2566,18 +2516,6 @@ function clearStormTrackLabelMarkers(markers: maplibregl.Marker[]) {
   markers.length = 0
 }
 
-function syncStormTrackLabelMarkers(
-  _map: maplibregl.Map,
-  _markersRef: maplibregl.Marker[],
-  _stormTrackOrigin: [number, number],
-  _stormTrackMarkers: Array<{
-    coordinates: [number, number]
-    label: string
-  }>,
-) {
-  return
-}
-
 function buildProjectedTrackLabels(
   map: maplibregl.Map,
   stormTrackOrigin: [number, number],
@@ -2725,6 +2663,49 @@ function nudgeMapRender(map: maplibregl.Map) {
     map.triggerRepaint()
   } catch {
     return
+  }
+}
+
+function runWhenStyleLoaded(map: maplibregl.Map, callback: () => void) {
+  let active = true
+  let frameId: number | null = null
+
+  const cleanupListeners = () => {
+    map.off('load', tryRun)
+    map.off('styledata', tryRun)
+    map.off('idle', tryRun)
+  }
+
+  const tryRun = () => {
+    if (!active) {
+      return
+    }
+
+    if (map.isStyleLoaded()) {
+      cleanupListeners()
+      callback()
+      return
+    }
+
+    if (frameId === null) {
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        tryRun()
+      })
+    }
+  }
+
+  map.on('load', tryRun)
+  map.on('styledata', tryRun)
+  map.on('idle', tryRun)
+  tryRun()
+
+  return () => {
+    active = false
+    cleanupListeners()
+    if (frameId !== null) {
+      window.cancelAnimationFrame(frameId)
+    }
   }
 }
 
