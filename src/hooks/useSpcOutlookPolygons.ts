@@ -21,7 +21,10 @@ type SpcOutlookState = {
   error: string | null
 }
 
-export function useSpcOutlookPolygons(day: 1 | 2 | 3): SpcOutlookState {
+export function useSpcOutlookPolygons(
+  day: 1 | 2 | 3,
+  enabled = true,
+): SpcOutlookState {
   const [state, setState] = useState<SpcOutlookState>({
     features: [],
     loading: true,
@@ -29,6 +32,15 @@ export function useSpcOutlookPolygons(day: 1 | 2 | 3): SpcOutlookState {
   })
 
   useEffect(() => {
+    if (!enabled) {
+      setState({
+        features: [],
+        loading: false,
+        error: null,
+      })
+      return
+    }
+
     const controller = new AbortController()
 
     setState((current) => ({
@@ -74,7 +86,7 @@ export function useSpcOutlookPolygons(day: 1 | 2 | 3): SpcOutlookState {
       })
 
     return () => controller.abort()
-  }, [day])
+  }, [day, enabled])
 
   return state
 }

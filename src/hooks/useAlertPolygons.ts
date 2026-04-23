@@ -45,6 +45,7 @@ export function useAlertPolygons(): AlertPolygonState {
 
   useEffect(() => {
     const controller = new AbortController()
+    let timeoutId: number | null = null
 
     const loadAlerts = async () => {
       try {
@@ -77,6 +78,10 @@ export function useAlertPolygons(): AlertPolygonState {
               ? error.message
               : 'Active alert polygons are unavailable.',
         })
+      } finally {
+        if (!controller.signal.aborted) {
+          timeoutId = window.setTimeout(loadAlerts, refreshIntervalMs)
+        }
       }
     }
 
@@ -87,11 +92,12 @@ export function useAlertPolygons(): AlertPolygonState {
     }))
 
     loadAlerts()
-    const interval = window.setInterval(loadAlerts, refreshIntervalMs)
 
     return () => {
       controller.abort()
-      window.clearInterval(interval)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
     }
   }, [])
 
@@ -102,7 +108,7 @@ async function normalizeAlertFeatures(
   response: NwsAlertsGeoJsonResponse,
   signal?: AbortSignal,
 ): Promise<AlertFeature[]> {
-  const resolvedFeatures = await Promise.all(
+  const resolvedFeatures = await Promise.allSettled(
     (response.features ?? []).map(async (feature, index) => {
       const geometry = await resolveAlertGeometry(feature, signal)
 
@@ -131,7 +137,9 @@ async function normalizeAlertFeatures(
     }),
   )
 
-  return resolvedFeatures.filter((feature): feature is AlertFeature => feature !== null)
+  return resolvedFeatures
+    .map((result) => (result.status === 'fulfilled' ? result.value : null))
+    .filter((feature): feature is AlertFeature => feature !== null)
 }
 
 async function resolveAlertGeometry(

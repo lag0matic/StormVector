@@ -62,18 +62,6 @@ export type LocalStormReportFeature = {
   coordinates: [number, number]
 }
 
-export type SpotterNetworkFeature = {
-  id: string
-  label: string
-  platform: string
-  timestamp: string
-  heading: string
-  note: string
-  pageUrl?: string
-  embedUrl?: string
-  coordinates: [number, number]
-}
-
 export type SpcOutlookFeature = {
   id: string
   category: string
@@ -104,8 +92,6 @@ export type HazardSelection = {
   accentColor?: string
   body?: string
   detailLines: string[]
-  pageUrl?: string
-  embedUrl?: string
   relatedAlerts?: Array<{
     id: string
     title: string

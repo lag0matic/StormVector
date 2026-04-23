@@ -103,6 +103,7 @@ type CacheEntry<T> = {
 }
 
 const cacheMaxAgeMs = 8 * 60 * 1000
+const cacheMaxEntries = 80
 const pointResponseCache = new Map<string, CacheEntry<NwsPointResponse>>()
 const forecastResponseCache = new Map<string, CacheEntry<NwsForecastResponse>>()
 const hourlyForecastResponseCache = new Map<
@@ -315,7 +316,20 @@ async function getCachedOrFetch<T>(
     value,
     fetchedAt: Date.now(),
   })
+  trimCache(cache, cacheMaxEntries)
   return value
+}
+
+function trimCache<T>(cache: Map<string, CacheEntry<T>>, maxEntries: number) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value
+
+    if (!oldestKey) {
+      return
+    }
+
+    cache.delete(oldestKey)
+  }
 }
 
 function buildNextHours(

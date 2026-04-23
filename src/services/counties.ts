@@ -2,6 +2,7 @@ const censusCountyServiceUrl =
   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query'
 
 const countyGeometryCache = new Map<string, GeoJSON.Polygon | GeoJSON.MultiPolygon>()
+const countyGeometryCacheMaxEntries = 600
 
 export async function fetchCountyGeometries(
   countyFipsCodes: string[],
@@ -61,6 +62,7 @@ export async function fetchCountyGeometries(
 
       if (geometry?.type === 'Polygon' || geometry?.type === 'MultiPolygon') {
         countyGeometryCache.set(geoid, geometry)
+        trimCache(countyGeometryCache, countyGeometryCacheMaxEntries)
       }
     }
   }
@@ -86,6 +88,18 @@ export function geometryCollectionToMultiPolygon(
     coordinates: geometries.flatMap((geometry) =>
       geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates,
     ),
+  }
+}
+
+function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value
+
+    if (oldestKey === undefined) {
+      return
+    }
+
+    cache.delete(oldestKey)
   }
 }
 

@@ -16,6 +16,8 @@ let radarSiteCache: RadarSite[] | null = null
 const radarMetadataCache = new Map<string, Document>()
 const radarProductCache = new Map<string, RadarProductDefinition | null>()
 const regionalRadarTimelineCache = new Map<RegionalRadarProduct, string[]>()
+const radarMetadataCacheMaxEntries = 24
+const radarProductCacheMaxEntries = 48
 
 type FetchOptions = {
   forceRefresh?: boolean
@@ -159,10 +161,12 @@ export async function fetchRadarProductDefinition(
     }
 
     radarProductCache.set(cacheKey, definition)
+    trimCache(radarProductCache, radarProductCacheMaxEntries)
     return definition
   }
 
   radarProductCache.set(cacheKey, null)
+  trimCache(radarProductCache, radarProductCacheMaxEntries)
   return null
 }
 
@@ -233,7 +237,20 @@ async function fetchRadarMetadata(
   const xml = await response.text()
   const document = new DOMParser().parseFromString(xml, 'text/xml')
   radarMetadataCache.set(site.id, document)
+  trimCache(radarMetadataCache, radarMetadataCacheMaxEntries)
   return document
+}
+
+function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value
+
+    if (oldestKey === undefined) {
+      return
+    }
+
+    cache.delete(oldestKey)
+  }
 }
 
 function distanceBetweenMiles(

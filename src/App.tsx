@@ -1,7 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import './App.css'
-import { MapCanvas } from './components/MapCanvas'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
 import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
@@ -68,6 +76,11 @@ const radarViews = [
   { id: 'regional', label: 'Regional' },
   { id: 'local', label: 'Local' },
 ] as const
+const MapCanvas = lazy(() =>
+  import('./components/MapCanvas').then((module) => ({
+    default: module.MapCanvas,
+  })),
+)
 let sharedAlertAudioContext: AudioContext | null = null
 let sharedAlertAudioUnlockInstalled = false
 let sharedAlertAudioUnlockInFlight: Promise<void> | null = null
@@ -160,6 +173,12 @@ type StormTrackArrival = {
   label: string
   etaLabel: string
   distanceMiles: number
+}
+type GeometryBounds = {
+  west: number
+  south: number
+  east: number
+  north: number
 }
 type SidePanelTab = 'forecast' | 'hazards'
 type ThemeMode = 'light' | 'dark'
@@ -318,10 +337,17 @@ function App() {
   } = useLocalStormReports(showSpotterReports)
   const {
     features: spcFeatures,
-  } = useSpcOutlookPolygons(selectedSpcDay)
+  } = useSpcOutlookPolygons(
+    selectedSpcDay,
+    activeLayer === 'Forecast' && activeForecastOverlay === 'SPC Storm Risk',
+  )
   const {
     features: winterFeatures = [],
-  } = useWinterOutlookPolygons(selectedWinterProduct, selectedWinterDay)
+  } = useWinterOutlookPolygons(
+    selectedWinterProduct,
+    selectedWinterDay,
+    activeLayer === 'Forecast' && activeForecastOverlay === 'Winter',
+  )
   const {
     frames: regionalRadarFrames,
     loading: regionalRadarTimelineLoading,
@@ -447,6 +473,10 @@ function App() {
     () => alertFeatures.filter((feature) => alertTypeFilters[feature.alertType]),
     [alertFeatures, alertTypeFilters],
   )
+  const alertGeometryBounds = useMemo(
+    () => buildAlertGeometryBounds(alertFeatures),
+    [alertFeatures],
+  )
   const recentLocalStormReports = useMemo(
     () =>
       localStormReports
@@ -455,8 +485,14 @@ function App() {
     [localStormReports, reportTypeFilters],
   )
   const nearbyAlerts = useMemo(
-    () => getNearbyAlerts(visibleAlertFeatures, selectedCoordinates, 70),
-    [selectedCoordinates, visibleAlertFeatures],
+    () =>
+      getNearbyAlerts(
+        visibleAlertFeatures,
+        selectedCoordinates,
+        70,
+        alertGeometryBounds,
+      ),
+    [alertGeometryBounds, selectedCoordinates, visibleAlertFeatures],
   )
   const nearbyReports = useMemo(
     () => getNearbyReports(recentLocalStormReports, selectedCoordinates, 70),
@@ -476,6 +512,7 @@ function App() {
         alertFeatures,
         audibleAlertCoordinates,
         audibleAlertSettings.radiusMiles,
+        alertGeometryBounds,
       ).filter(({ alert }) =>
         alert.alertType === 'warning'
           ? audibleAlertSettings.warning
@@ -483,7 +520,7 @@ function App() {
             ? audibleAlertSettings.watch
             : false,
       ),
-    [alertFeatures, audibleAlertCoordinates, audibleAlertSettings],
+    [alertFeatures, alertGeometryBounds, audibleAlertCoordinates, audibleAlertSettings],
   )
   const currentSavedLocation = {
     label: weather.location.name,
@@ -1459,45 +1496,47 @@ function App() {
       <main className="workspace">
         <section className="map-panel">
           <div className="map-stage">
-            <MapCanvas
-              center={selectedCoordinates}
-              shouldRecenterMap={shouldRecenterMap}
-              themeMode={themeMode}
-              activeLayer={activeLayer}
-              radarProduct={radarProduct}
-              radarView={radarView}
-              satelliteLayer={satelliteLayer}
-              radarOpacity={layerOpacity.radar / 100}
-              satelliteOpacity={layerOpacity.satellite / 100}
-              warningOpacity={layerOpacity.warnings / 100}
-              watchOpacity={layerOpacity.watches / 100}
-              polygonOpacity={layerOpacity.polygons / 100}
-              selectedRegionalRadarTime={selectedRegionalRadarTime}
-              selectedSatelliteTime={selectedSatelliteTime}
-              radarSites={radarSites}
-              nearestRadarSite={activeRadarSite}
-              localRadarDefinition={localRadarDefinition}
-              selectedRadarSiteId={selectedRadarSiteId}
-              selectedLocalRadarTime={selectedLocalRadarTime}
-              alertFeatures={alertFeatures}
-              alertTypeFilters={alertTypeFilters}
-              localStormReports={recentLocalStormReports}
-              showSpotterReports={showSpotterReports}
-              spcFeatures={spcFeatures}
-              winterFeatures={winterFeatures}
-              activeForecastOverlay={activeForecastOverlay}
-              trackToolEnabled={trackToolEnabled}
-              stormTrackOrigin={stormTrackOrigin}
-              stormTrackEnd={stormTrackEnd}
-              stormTrackSpeedMph={stormTrackSpeedMph}
-              stormTrackResetKey={stormTrackResetKey}
-              mapRefreshKey={mapRefreshKey}
-              onHazardSelect={handleHazardSelect}
-              onStormTrackOriginSet={handleStormTrackOriginSet}
-              onStormTrackEndSet={setStormTrackEnd}
-              onMapClick={handleMapClick}
-              onRadarSiteSelect={handleRadarSiteSelect}
-            />
+            <Suspense fallback={<div className="map-loading">Loading map...</div>}>
+              <MapCanvas
+                center={selectedCoordinates}
+                shouldRecenterMap={shouldRecenterMap}
+                themeMode={themeMode}
+                activeLayer={activeLayer}
+                radarProduct={radarProduct}
+                radarView={radarView}
+                satelliteLayer={satelliteLayer}
+                radarOpacity={layerOpacity.radar / 100}
+                satelliteOpacity={layerOpacity.satellite / 100}
+                warningOpacity={layerOpacity.warnings / 100}
+                watchOpacity={layerOpacity.watches / 100}
+                polygonOpacity={layerOpacity.polygons / 100}
+                selectedRegionalRadarTime={selectedRegionalRadarTime}
+                selectedSatelliteTime={selectedSatelliteTime}
+                radarSites={radarSites}
+                nearestRadarSite={activeRadarSite}
+                localRadarDefinition={localRadarDefinition}
+                selectedRadarSiteId={selectedRadarSiteId}
+                selectedLocalRadarTime={selectedLocalRadarTime}
+                alertFeatures={alertFeatures}
+                alertTypeFilters={alertTypeFilters}
+                localStormReports={recentLocalStormReports}
+                showSpotterReports={showSpotterReports}
+                spcFeatures={spcFeatures}
+                winterFeatures={winterFeatures}
+                activeForecastOverlay={activeForecastOverlay}
+                trackToolEnabled={trackToolEnabled}
+                stormTrackOrigin={stormTrackOrigin}
+                stormTrackEnd={stormTrackEnd}
+                stormTrackSpeedMph={stormTrackSpeedMph}
+                stormTrackResetKey={stormTrackResetKey}
+                mapRefreshKey={mapRefreshKey}
+                onHazardSelect={handleHazardSelect}
+                onStormTrackOriginSet={handleStormTrackOriginSet}
+                onStormTrackEndSet={setStormTrackEnd}
+                onMapClick={handleMapClick}
+                onRadarSiteSelect={handleRadarSiteSelect}
+              />
+            </Suspense>
 
             <div className="map-floating map-floating-top-left">
               <div className="map-toolbar map-glass">
@@ -2150,31 +2189,11 @@ function App() {
                       {selectedHazard.body ? (
                         <div className="hazard-body">{selectedHazard.body}</div>
                       ) : null}
-                      {selectedHazard.embedUrl ? (
-                        <div className="camera-embed-shell">
-                          <iframe
-                            src={selectedHazard.embedUrl}
-                            title={selectedHazard.title}
-                            loading="lazy"
-                            allow="autoplay; fullscreen"
-                          />
-                        </div>
-                      ) : null}
                       <div className="hazard-detail-list">
                         {selectedHazard.detailLines.map((line) => (
                           <span key={line}>{line}</span>
                         ))}
                       </div>
-                      {selectedHazard.pageUrl ? (
-                        <a
-                          className="camera-link"
-                          href={selectedHazard.pageUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open live feed
-                        </a>
-                      ) : null}
                     </article>
                   ) : showSpotterReports && nearbyReports.length > 0 ? (
                     nearbyReports.map(({ report, distanceMiles, ageMinutes }) => (
@@ -2489,8 +2508,12 @@ function getNearbyAlerts(
   alerts: AlertFeature[],
   point: [number, number],
   maxMiles: number,
+  geometryBounds: Map<string, GeometryBounds>,
 ) {
   return alerts
+    .filter((alert) =>
+      boundsCouldBeWithinMiles(geometryBounds.get(alert.id), point, maxMiles),
+    )
     .map((alert) => {
       const containsPoint = geometryContainsPoint(alert.geometry, point)
       const distanceMiles = containsPoint
@@ -2511,6 +2534,56 @@ function getNearbyAlerts(
 
       return left.distanceMiles - right.distanceMiles
     })
+}
+
+function buildAlertGeometryBounds(alerts: AlertFeature[]) {
+  return new Map(
+    alerts.map((alert) => [alert.id, calculateGeometryBounds(alert.geometry)]),
+  )
+}
+
+function calculateGeometryBounds(
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): GeometryBounds {
+  const vertices =
+    geometry.type === 'Polygon'
+      ? geometry.coordinates.flat()
+      : geometry.coordinates.flat(2)
+
+  return vertices.reduce<GeometryBounds>(
+    (bounds, [lon, lat]) => ({
+      west: Math.min(bounds.west, lon),
+      south: Math.min(bounds.south, lat),
+      east: Math.max(bounds.east, lon),
+      north: Math.max(bounds.north, lat),
+    }),
+    {
+      west: Number.POSITIVE_INFINITY,
+      south: Number.POSITIVE_INFINITY,
+      east: Number.NEGATIVE_INFINITY,
+      north: Number.NEGATIVE_INFINITY,
+    },
+  )
+}
+
+function boundsCouldBeWithinMiles(
+  bounds: GeometryBounds | undefined,
+  [lon, lat]: [number, number],
+  miles: number,
+) {
+  if (!bounds) {
+    return true
+  }
+
+  const latPadding = miles / 69
+  const lonPadding = miles / Math.max(Math.cos((lat * Math.PI) / 180) * 69, 1)
+
+  return (
+    lon >= bounds.west - lonPadding &&
+    lon <= bounds.east + lonPadding &&
+    lat >= bounds.south - latPadding &&
+    lat <= bounds.north + latPadding
+  )
 }
 
 function getNearbyReports(
@@ -2551,25 +2624,32 @@ function polygonContainsPoint(
   coordinates: number[][][],
   point: [number, number],
 ) {
+  const [outerRing, ...holes] = coordinates
+
+  if (!outerRing || !ringContainsPoint(outerRing, point)) {
+    return false
+  }
+
+  return !holes.some((ring) => ringContainsPoint(ring, point))
+}
+
+function ringContainsPoint(ring: number[][], point: [number, number]) {
   const [x, y] = point
+  let inside = false
 
-  return coordinates.some((ring) => {
-    let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi
 
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i]
-      const [xj, yj] = ring[j]
-      const intersects =
-        yi > y !== yj > y &&
-        x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi
-
-      if (intersects) {
-        inside = !inside
-      }
+    if (intersects) {
+      inside = !inside
     }
+  }
 
-    return inside
-  })
+  return inside
 }
 
 function estimateGeometryDistanceMiles(
@@ -2725,7 +2805,9 @@ async function playAudibleAlertTone(tone: 'warning' | 'watch') {
   try {
     await invoke('play_alert_tone', { tone })
     return
-  } catch {}
+  } catch {
+    // Fall back to browser audio when the Tauri command is unavailable.
+  }
 
   const audioContext = getSharedAlertAudioContext()
 
@@ -2768,7 +2850,9 @@ async function playAudibleAlertTone(tone: 'warning' | 'watch') {
       oscillator.start(startTime)
       oscillator.stop(endTime)
     })
-  } catch {}
+  } catch {
+    // Alert sounds should never interrupt the warning UI.
+  }
 }
 
 const OpacitySlider = memo(function OpacitySlider({

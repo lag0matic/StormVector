@@ -26,7 +26,7 @@ export function useSatelliteTimeline(
 
   useEffect(() => {
     const controller = new AbortController()
-    let intervalId: number | null = null
+    let timeoutId: number | null = null
 
     const loadTimeline = async (forceRefresh = false) => {
       if (!forceRefresh) {
@@ -64,18 +64,21 @@ export function useSatelliteTimeline(
           loading: false,
           error: error instanceof Error ? error.message : 'Satellite refresh failed.',
         }))
+      } finally {
+        if (!controller.signal.aborted) {
+          timeoutId = window.setTimeout(() => {
+            void loadTimeline(true)
+          }, SATELLITE_POLL_MS)
+        }
       }
     }
 
     void loadTimeline(false)
-    intervalId = window.setInterval(() => {
-      void loadTimeline(true)
-    }, SATELLITE_POLL_MS)
 
     return () => {
       controller.abort()
-      if (intervalId !== null) {
-        window.clearInterval(intervalId)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
       }
     }
   }, [layerId])
