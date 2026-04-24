@@ -65,7 +65,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.3.1'
+const appVersion = 'v1.3.2'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },

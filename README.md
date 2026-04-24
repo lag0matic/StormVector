@@ -4,7 +4,7 @@ StormVector is a desktop-first U.S. weather workstation for live monitoring.
 
 It is built for practical situational awareness, with a map-first workflow and a focus on live weather monitoring rather than deep forecast-model analysis.
 
-Current stable release: `v1.3.0`
+Current stable release: `v1.3.2`
 
 ## What it does
 
