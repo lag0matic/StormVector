@@ -35,7 +35,20 @@ It was very much vibe coded with the help of OpenAI Codex, and I am not a profes
 - MapLibre
 - Tauri
 
-## Running it
+## Download
+
+Download the packaged app from the latest GitHub release.
+
+Current `v1.3.2` release files:
+
+- Windows: `StormVector_1.3.2_x64-setup.exe`
+- Linux AppImage: `stormvector-appimage-1.3.2.zip`
+- Linux Debian / Ubuntu: `stormvector-deb-1.3.2.zip`
+- Linux Fedora / RHEL / openSUSE: `stormvector-rpm-1.3.2.zip`
+
+The Linux downloads are packaged apps. You should not need Node.js, Rust, or Tauri installed unless you are building StormVector from source.
+
+## Running from source
 
 ```bash
 npm install
@@ -45,59 +58,7 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-## Linux support
-
-StormVector should stay in this same repo for Linux. It is already a Tauri desktop app, so Linux is a platform target, not a separate fork.
-
-### Arch prerequisites
-
-On Arch-based systems, install the Tauri Linux prerequisites:
-
-```bash
-sudo pacman -Syu
-sudo pacman -S --needed \
-  webkit2gtk-4.1 \
-  base-devel \
-  curl \
-  wget \
-  file \
-  openssl \
-  appmenu-gtk-module \
-  libappindicator-gtk3 \
-  librsvg \
-  xdotool
-```
-
-You will also need:
-
-```bash
-curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
-```
-
-and a current Node.js LTS install.
-
-### Arch build flow
-
-```bash
-npm install
-npm run tauri:dev
-npm run tauri:build
-```
-
-When built on Linux, Tauri can generate Linux bundles such as:
-
-- AppImage
-- `.deb`
-- `.rpm`
-
-See [docs/linux-arch.md](docs/linux-arch.md) for a more practical Arch-focused setup note.
-
-## Packaged app
-
-Windows builds are produced through Tauri. Current release packaging generates:
-
-- `src-tauri/target/release/bundle/nsis/StormVector_1.3.0_x64-setup.exe`
-- `src-tauri/target/release/bundle/msi/StormVector_1.3.0_x64_en-US.msi`
+For source builds on Linux, see [docs/linux-arch.md](docs/linux-arch.md) for an Arch-focused setup note.
 
 ## Data sources
 
