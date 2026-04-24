@@ -1,4 +1,5 @@
 import { buildPointsUrl, fetchJson, nwsHeaders } from './nws'
+import { trimCache } from '../utils/cache'
 import type {
   ForecastPeriod,
   HazardCard,
@@ -318,18 +319,6 @@ async function getCachedOrFetch<T>(
   })
   trimCache(cache, cacheMaxEntries)
   return value
-}
-
-function trimCache<T>(cache: Map<string, CacheEntry<T>>, maxEntries: number) {
-  while (cache.size > maxEntries) {
-    const oldestKey = cache.keys().next().value
-
-    if (!oldestKey) {
-      return
-    }
-
-    cache.delete(oldestKey)
-  }
 }
 
 function buildNextHours(

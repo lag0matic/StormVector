@@ -1,3 +1,5 @@
+import { trimCache } from '../utils/cache'
+
 type CensusMatch = {
   matchedAddress: string
   coordinates: {
@@ -189,18 +191,6 @@ export async function reverseGeocodePlace(
   reversePlaceCache.set(cacheKey, result)
   trimCache(reversePlaceCache, reversePlaceCacheMaxEntries)
   return result
-}
-
-function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
-  while (cache.size > maxEntries) {
-    const oldestKey = cache.keys().next().value
-
-    if (oldestKey === undefined) {
-      return
-    }
-
-    cache.delete(oldestKey)
-  }
 }
 
 function simplifyPlaceLabel(displayName: string) {

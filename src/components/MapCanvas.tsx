@@ -16,6 +16,8 @@ import type {
   SpcOutlookFeature,
   WinterOutlookFeature,
 } from '../types/weather'
+import { distanceBetweenMiles } from '../utils/geo'
+import { formatEtaDuration } from '../utils/time'
 
 type MapCanvasProps = {
   center: [number, number]
@@ -166,7 +168,6 @@ export const MapCanvas = memo(function MapCanvas({
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const radarPopupRef = useRef<maplibregl.Popup | null>(null)
   const alertPopupRef = useRef<maplibregl.Popup | null>(null)
-  const stormTrackLabelMarkersRef = useRef<maplibregl.Marker[]>([])
   const pointerDownPointRef = useRef<{ x: number; y: number } | null>(null)
   const onMapClickRef = useRef(onMapClick)
   const onRadarSiteSelectRef = useRef(onRadarSiteSelect)
@@ -326,7 +327,7 @@ export const MapCanvas = memo(function MapCanvas({
       stormTrackDragRef.current = false
       map.dragPan.enable()
 
-      const dragDistanceMiles = distanceBetweenCoordinatesMiles(
+      const dragDistanceMiles = distanceBetweenMiles(
         activeStormTrackOrigin,
         stormTrackPreviewEndRef.current,
       )
@@ -445,7 +446,6 @@ export const MapCanvas = memo(function MapCanvas({
 
     mapRef.current = map
     setMapInstance(map)
-    const stormTrackLabelMarkers = stormTrackLabelMarkersRef.current
 
     return () => {
       map.off('load', scheduleRequestViewportSync)
@@ -463,7 +463,6 @@ export const MapCanvas = memo(function MapCanvas({
       markerRef.current = null
       setRequestViewport(null)
       setProjectedTrackLabels([])
-      clearStormTrackLabelMarkers(stormTrackLabelMarkers)
       map.remove()
       mapRef.current = null
       setMapInstance(null)
@@ -491,7 +490,7 @@ export const MapCanvas = memo(function MapCanvas({
 
       if (
         stormTrackOriginRef.current &&
-        distanceBetweenCoordinatesMiles(targetPoint, activeStormTrackOrigin) > 30
+        distanceBetweenMiles(targetPoint, activeStormTrackOrigin) > 30
       ) {
         return
       }
@@ -1414,7 +1413,6 @@ export const MapCanvas = memo(function MapCanvas({
 
       if (!trackToolEnabled || !stormTrackOrigin || !stormTrackEnd) {
         removeStormTrack(map)
-        clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
         return
       }
 
@@ -1452,7 +1450,6 @@ export const MapCanvas = memo(function MapCanvas({
     }
 
     removeStormTrack(map)
-    clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
     syncStormTrackSource(
       map,
       stormTrackOrigin,
@@ -1480,7 +1477,6 @@ export const MapCanvas = memo(function MapCanvas({
     stormTrackPreviewEndRef.current = null
     map.dragPan.enable()
     removeStormTrack(map)
-    clearStormTrackLabelMarkers(stormTrackLabelMarkersRef.current)
   }, [stormTrackResetKey])
 
   useEffect(() => {
@@ -2471,7 +2467,7 @@ function buildImmediateStormTrackMarkers(
   stormTrackEnd: [number, number],
   stormTrackSpeedMph: number,
 ) {
-  const totalDistanceMiles = distanceBetweenCoordinatesMiles(
+  const totalDistanceMiles = distanceBetweenMiles(
     stormTrackOrigin,
     stormTrackEnd,
   )
@@ -2509,11 +2505,6 @@ function buildImmediateStormTrackMarkers(
   })
 
   return markers
-}
-
-function clearStormTrackLabelMarkers(markers: maplibregl.Marker[]) {
-  markers.forEach((marker) => marker.remove())
-  markers.length = 0
 }
 
 function buildProjectedTrackLabels(
@@ -2804,23 +2795,6 @@ function lngLatToWebMercator(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
-function distanceBetweenCoordinatesMiles(
-  [lonA, latA]: [number, number],
-  [lonB, latB]: [number, number],
-) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180
-  const earthRadiusMiles = 3958.8
-  const deltaLat = toRadians(latB - latA)
-  const deltaLon = toRadians(lonB - lonA)
-  const a =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(toRadians(latA)) *
-      Math.cos(toRadians(latB)) *
-      Math.sin(deltaLon / 2) ** 2
-
-  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 function interpolateCoordinates(
   [startLon, startLat]: [number, number],
   [endLon, endLat]: [number, number],
@@ -2830,22 +2804,6 @@ function interpolateCoordinates(
     startLon + (endLon - startLon) * fraction,
     startLat + (endLat - startLat) * fraction,
   ]
-}
-
-function formatEtaDuration(totalMinutes: number) {
-  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
-    return 'now'
-  }
-
-  const roundedMinutes = Math.max(1, Math.round(totalMinutes))
-  const hours = Math.floor(roundedMinutes / 60)
-  const minutes = roundedMinutes % 60
-
-  if (hours === 0) {
-    return `${minutes}m`
-  }
-
-  return `${hours}:${String(minutes).padStart(2, '0')}`
 }
 
 function prioritizeAlertFeature(

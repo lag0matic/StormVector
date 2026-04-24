@@ -1,3 +1,6 @@
+import { trimCache } from '../utils/cache'
+import { distanceBetweenMiles } from '../utils/geo'
+
 export type RadarSite = {
   id: string
   name: string
@@ -239,33 +242,4 @@ async function fetchRadarMetadata(
   radarMetadataCache.set(site.id, document)
   trimCache(radarMetadataCache, radarMetadataCacheMaxEntries)
   return document
-}
-
-function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
-  while (cache.size > maxEntries) {
-    const oldestKey = cache.keys().next().value
-
-    if (oldestKey === undefined) {
-      return
-    }
-
-    cache.delete(oldestKey)
-  }
-}
-
-function distanceBetweenMiles(
-  [lonA, latA]: [number, number],
-  [lonB, latB]: [number, number],
-) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180
-  const earthRadiusMiles = 3958.8
-  const deltaLat = toRadians(latB - latA)
-  const deltaLon = toRadians(lonB - lonA)
-  const a =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(toRadians(latA)) *
-      Math.cos(toRadians(latB)) *
-      Math.sin(deltaLon / 2) ** 2
-
-  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
