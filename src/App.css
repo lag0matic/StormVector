@@ -1,9 +1,10 @@
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
   padding: 14px;
   display: grid;
   grid-template-rows: auto auto 1fr;
   gap: 10px;
+  overflow: hidden;
 }
 
 .topbar,
@@ -163,6 +164,7 @@
   grid-template-columns: minmax(0, 2.2fr) minmax(240px, 0.62fr);
   gap: 10px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .map-panel {
@@ -171,20 +173,20 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 540px;
+  min-height: 0;
   overflow: hidden;
 }
 
 .map-stage {
   position: relative;
   flex: 1;
-  min-height: 520px;
+  min-height: 0;
   height: 100%;
 }
 
 .map-loading {
   display: grid;
-  min-height: 520px;
+  min-height: 0;
   height: 100%;
   place-items: center;
   border-radius: 20px;
@@ -197,14 +199,14 @@
 .map-surface {
   position: relative;
   flex: 1;
-  min-height: 520px;
+  min-height: 0;
   height: 100%;
 }
 
 .map-canvas {
   width: 100%;
   height: 100%;
-  min-height: 520px;
+  min-height: 0;
   border-radius: 20px;
   overflow: hidden;
 }
@@ -647,6 +649,9 @@
   display: grid;
   gap: 8px;
   align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .panel {
@@ -935,6 +940,7 @@
 @media (max-width: 1100px) {
   .workspace {
     grid-template-columns: 1fr;
+    overflow: auto;
   }
 
   .map-panel {
@@ -994,6 +1000,7 @@
 @media (max-width: 720px) {
   .app-shell {
     padding: 14px;
+    overflow: auto;
   }
 
   .forecast-grid {

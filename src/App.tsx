@@ -225,6 +225,38 @@ function App() {
     installAlertAudioUnlock()
   }, [])
 
+  useEffect(() => {
+    const preventBrowserZoomWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+      }
+    }
+    const preventBrowserZoomKeys = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return
+      }
+
+      if (['+', '=', '-', '_', '0'].includes(event.key)) {
+        event.preventDefault()
+      }
+    }
+    const preventGestureZoom = (event: Event) => {
+      event.preventDefault()
+    }
+
+    window.addEventListener('wheel', preventBrowserZoomWheel, { passive: false })
+    window.addEventListener('keydown', preventBrowserZoomKeys)
+    window.addEventListener('gesturestart', preventGestureZoom)
+    window.addEventListener('gesturechange', preventGestureZoom)
+
+    return () => {
+      window.removeEventListener('wheel', preventBrowserZoomWheel)
+      window.removeEventListener('keydown', preventBrowserZoomKeys)
+      window.removeEventListener('gesturestart', preventGestureZoom)
+      window.removeEventListener('gesturechange', preventGestureZoom)
+    }
+  }, [])
+
   const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
     readStoredJson<ThemeMode>(storageKeys.themeMode, 'light'),
   )
