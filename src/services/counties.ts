@@ -1,3 +1,5 @@
+import { trimCache } from '../utils/cache'
+
 const censusCountyServiceUrl =
   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query'
 
@@ -88,18 +90,6 @@ export function geometryCollectionToMultiPolygon(
     coordinates: geometries.flatMap((geometry) =>
       geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates,
     ),
-  }
-}
-
-function trimCache<K, V>(cache: Map<K, V>, maxEntries: number) {
-  while (cache.size > maxEntries) {
-    const oldestKey = cache.keys().next().value
-
-    if (oldestKey === undefined) {
-      return
-    }
-
-    cache.delete(oldestKey)
   }
 }
 

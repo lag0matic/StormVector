@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { buildPointsUrl, fetchJson } from '../services/nws'
+import { trimCache } from '../utils/cache'
+import { distanceBetweenMiles } from '../utils/geo'
 
 export type StormTrackPlace = {
   label: string
@@ -25,6 +27,7 @@ type NwsPointLookupResponse = {
 
 const maxSamples = 6
 const maxPlaces = 6
+const pointPlaceCacheMaxEntries = 120
 const pointPlaceCache = new Map<string, { label: string; coordinates: [number, number] } | null>()
 
 export function useStormTrackPlaces(
@@ -160,6 +163,7 @@ async function lookupPlaceFromPointMetadata(
 
     if (!city || !state) {
       pointPlaceCache.set(cacheKey, null)
+      trimCache(pointPlaceCache, pointPlaceCacheMaxEntries)
       return null
     }
 
@@ -168,9 +172,11 @@ async function lookupPlaceFromPointMetadata(
       coordinates: [longitude, latitude] as [number, number],
     }
     pointPlaceCache.set(cacheKey, result)
+    trimCache(pointPlaceCache, pointPlaceCacheMaxEntries)
     return result
   } catch {
     pointPlaceCache.set(cacheKey, null)
+    trimCache(pointPlaceCache, pointPlaceCacheMaxEntries)
     return null
   }
 }
@@ -184,21 +190,4 @@ function interpolateAlongLine(
     startLon + (endLon - startLon) * fraction,
     startLat + (endLat - startLat) * fraction,
   ]
-}
-
-function distanceBetweenMiles(
-  [lonA, latA]: [number, number],
-  [lonB, latB]: [number, number],
-) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180
-  const earthRadiusMiles = 3958.8
-  const deltaLat = toRadians(latB - latA)
-  const deltaLon = toRadians(lonB - lonA)
-  const a =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(toRadians(latA)) *
-      Math.cos(toRadians(latB)) *
-      Math.sin(deltaLon / 2) ** 2
-
-  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }

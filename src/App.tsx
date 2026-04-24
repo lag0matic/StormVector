@@ -31,6 +31,8 @@ import type {
   HazardSelection,
   LocalStormReportFeature,
 } from './types/weather'
+import { distanceBetweenMiles } from './utils/geo'
+import { formatEtaDuration } from './utils/time'
 
 const primaryLayers = ['Radar', 'Satellite', 'Forecast'] as const
 const forecastOverlays = ['None', 'SPC Storm Risk', 'Winter'] as const
@@ -2699,23 +2701,6 @@ function estimateGeometryDistanceMiles(
   }, Number.POSITIVE_INFINITY)
 }
 
-function distanceBetweenMiles(
-  [lonA, latA]: [number, number],
-  [lonB, latB]: [number, number],
-) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180
-  const earthRadiusMiles = 3958.8
-  const deltaLat = toRadians(latB - latA)
-  const deltaLon = toRadians(lonB - lonA)
-  const a =
-    Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(toRadians(latA)) *
-      Math.cos(toRadians(latB)) *
-      Math.sin(deltaLon / 2) ** 2
-
-  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 function describeAudibleAlertTypes(settings: AudibleAlertSettings) {
   const enabledTypes = [
     settings.warning ? 'warnings' : null,
@@ -2781,22 +2766,6 @@ function buildStormTrackArrivals(
       return kept
     }, [])
     .slice(0, 6)
-}
-
-function formatEtaDuration(totalMinutes: number) {
-  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
-    return 'now'
-  }
-
-  const roundedMinutes = Math.max(1, Math.round(totalMinutes))
-  const hours = Math.floor(roundedMinutes / 60)
-  const minutes = roundedMinutes % 60
-
-  if (hours === 0) {
-    return `${minutes}m`
-  }
-
-  return `${hours}:${String(minutes).padStart(2, '0')}`
 }
 
 function buildStormTrackSpeedPresets(distanceMiles: number) {

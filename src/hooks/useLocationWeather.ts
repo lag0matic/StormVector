@@ -17,8 +17,9 @@ export function useLocationWeather(
 
   useEffect(() => {
     let activeController: AbortController | null = null
+    let timeoutId: number | null = null
 
-    const loadWeather = (showLoadingState: boolean) => {
+    const loadWeather = async (showLoadingState: boolean) => {
       activeController?.abort()
       const controller = new AbortController()
       activeController = controller
@@ -31,38 +32,45 @@ export function useLocationWeather(
         }))
       }
 
-      fetchLocationWeather(coordinates, controller.signal)
-        .then((data) => {
-          if (controller.signal.aborted) {
-            return
-          }
+      try {
+        const data = await fetchLocationWeather(coordinates, controller.signal)
 
-          setState({
-            data,
-            loading: false,
-            error: null,
-            source: 'live',
-          })
-        })
-        .catch((error: Error) => {
-          if (controller.signal.aborted) {
-            return
-          }
+        if (controller.signal.aborted) {
+          return
+        }
 
-          setState((current) => ({
-            data: current.source === 'live' ? current.data : mockLocationWeather,
-            loading: false,
-            error: error.message,
-            source: current.source === 'live' ? 'live' : 'mock',
-          }))
+        setState({
+          data,
+          loading: false,
+          error: null,
+          source: 'live',
         })
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setState((current) => ({
+          data: current.source === 'live' ? current.data : mockLocationWeather,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Weather refresh failed.',
+          source: current.source === 'live' ? 'live' : 'mock',
+        }))
+      } finally {
+        if (!controller.signal.aborted) {
+          timeoutId = window.setTimeout(() => {
+            void loadWeather(false)
+          }, refreshIntervalMs)
+        }
+      }
     }
 
-    loadWeather(true)
-    const intervalId = window.setInterval(() => loadWeather(false), refreshIntervalMs)
+    void loadWeather(true)
 
     return () => {
-      window.clearInterval(intervalId)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
       activeController?.abort()
     }
   }, [coordinates])
