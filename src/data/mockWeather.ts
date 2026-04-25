@@ -10,6 +10,8 @@ export const mockLocationWeather: LocationWeather = {
     temperature: '46°F',
     summary: 'Overcast and breezy',
     feelsLike: '38°F',
+    dewpoint: '41°F',
+    humidity: '82%',
     wind: 'W 21 mph gusting 28',
     sky: 'Overcast',
     precip: 'Dry',
@@ -18,6 +20,15 @@ export const mockLocationWeather: LocationWeather = {
   sun: {
     sunrise: '6:55 AM',
     sunset: '8:22 PM',
+  },
+  outdoor: {
+    uvIndex: '6',
+    uvRisk: 'High',
+    uvMax: '7',
+    airQuality: '42',
+    airQualityRisk: 'Good',
+    airQualityDetails: 'PM2.5 5 ug/m3',
+    sourceLabel: 'Open-Meteo',
   },
   nextHours: [
     {

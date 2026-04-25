@@ -507,6 +507,10 @@
   background: var(--chip);
 }
 
+.radar-track-chip {
+  cursor: default;
+}
+
 .timestamp-card {
   display: grid;
   gap: 2px;
@@ -649,6 +653,10 @@
   font-size: 0.84rem;
 }
 
+.outdoor-source {
+  margin: 0;
+}
+
 .panel-heading h3,
 .timeline-panel h3,
 .forecast-card p,
@@ -748,6 +756,12 @@
   gap: 2px;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.hazard-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .hazard-body {

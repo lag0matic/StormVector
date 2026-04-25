@@ -13,6 +13,7 @@ import type {
   AlertFeature,
   HazardSelection,
   LocalStormReportFeature,
+  NexradStormTrackFeature,
   SpcOutlookFeature,
   WinterOutlookFeature,
 } from '../types/weather'
@@ -48,6 +49,7 @@ type MapCanvasProps = {
   }
   localStormReports: LocalStormReportFeature[]
   showSpotterReports: boolean
+  nexradStormTracks: NexradStormTrackFeature[]
   spcFeatures: SpcOutlookFeature[]
   winterFeatures: WinterOutlookFeature[]
   activeForecastOverlay: 'None' | 'SPC Storm Risk' | 'Winter'
@@ -112,6 +114,10 @@ const winterPolygonsFillLayerId = 'winter-outlook-polygons-fill'
 const winterPolygonsLineLayerId = 'winter-outlook-polygons-line'
 const localStormReportsSourceId = 'local-storm-reports'
 const localStormReportsLayerId = 'local-storm-reports-layer'
+const nexradStormTracksSourceId = 'nexrad-storm-tracks'
+const nexradStormTracksLineLayerId = 'nexrad-storm-tracks-line'
+const nexradStormTracksPointLayerId = 'nexrad-storm-tracks-point'
+const nexradStormTracksLabelLayerId = 'nexrad-storm-tracks-label'
 const stormTrackSourceId = 'storm-track-source'
 const stormTrackLineLayerId = 'storm-track-line'
 const stormTrackPointLayerId = 'storm-track-point'
@@ -141,6 +147,7 @@ export const MapCanvas = memo(function MapCanvas({
   alertTypeFilters,
   localStormReports,
   showSpotterReports,
+  nexradStormTracks,
   spcFeatures,
   winterFeatures = [],
   activeForecastOverlay,
@@ -954,6 +961,7 @@ export const MapCanvas = memo(function MapCanvas({
           magnitude: feature.magnitude,
           qualifier: feature.qualifier,
           valid: feature.valid,
+          ageMinutes: feature.ageMinutes,
           fillColor: feature.fillColor,
           strokeColor: feature.strokeColor,
         },
@@ -1002,6 +1010,29 @@ export const MapCanvas = memo(function MapCanvas({
 
     return runWhenStyleLoaded(map, applyLocalStormReports)
   }, [activeLayer, localStormReports, showSpotterReports])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const syncStormTracks = () => {
+      if (!map.isStyleLoaded()) {
+        return
+      }
+
+      if (activeLayer !== 'Radar' || radarView !== 'local' || nexradStormTracks.length === 0) {
+        removeNexradStormTracks(map)
+        return
+      }
+
+      syncNexradStormTracks(map, nexradStormTracks)
+    }
+
+    return runWhenStyleLoaded(map, syncStormTracks)
+  }, [activeLayer, nexradStormTracks, radarView])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1275,33 +1306,47 @@ export const MapCanvas = memo(function MapCanvas({
         return
       }
 
+      const eventType = String(feature.properties?.eventType ?? 'Spotter report')
+      const city = String(feature.properties?.city ?? 'Unknown location')
+      const state = String(feature.properties?.state ?? '')
+      const source = String(feature.properties?.source ?? 'Unknown source')
+      const remark = String(feature.properties?.remark ?? 'No report remark available.')
+      const magnitude = String(feature.properties?.magnitude ?? '')
+      const qualifier = String(feature.properties?.qualifier ?? '')
+      const ageMinutes = normalizeFeatureNumber(feature.properties?.ageMinutes)
+
       popup
         .setLngLat(event.lngLat)
         .setHTML(
-          `<strong>${feature.properties?.eventType ?? 'Spotter report'}</strong><div>${feature.properties?.city ?? ''}, ${feature.properties?.state ?? ''}</div><div>${feature.properties?.source ?? ''}</div>`,
+          [
+            `<strong>${escapeHtml(eventType)}</strong>`,
+            `<div>${escapeHtml(city)}, ${escapeHtml(state)}</div>`,
+            ageMinutes !== null ? `<div>${escapeHtml(formatReportAge(ageMinutes))}</div>` : '',
+            magnitude && magnitude !== 'None'
+              ? `<div>${escapeHtml(`Magnitude: ${magnitude}${qualifier ? ` (${qualifier})` : ''}`)}</div>`
+              : '',
+            `<div>${escapeHtml(source)}</div>`,
+            `<div>${escapeHtml(remark)}</div>`,
+          ].filter(Boolean).join(''),
         )
         .addTo(map)
 
       onHazardSelectRef.current({
         source: 'lsr',
-        title: String(feature.properties?.eventType ?? 'Spotter report'),
-        subtitle: `${String(feature.properties?.city ?? 'Unknown location')}, ${String(
-          feature.properties?.state ?? '',
-        )}`,
-        summary: String(feature.properties?.remark ?? 'No report remark available.'),
+        title: eventType,
+        subtitle: `${city}, ${state}`,
+        summary: remark,
         detailLines: [
           `Reported: ${formatCompactTimestamp(String(feature.properties?.valid ?? ''))}`,
-          `Source: ${String(feature.properties?.source ?? 'Unknown')}`,
-          ...(feature.properties?.magnitude &&
-          String(feature.properties?.magnitude) !== 'None'
+          ...(ageMinutes !== null ? [`Age: ${formatReportAge(ageMinutes)}`] : []),
+          `Source: ${source}`,
+          ...(magnitude &&
+          magnitude !== 'None'
             ? [
-                `Magnitude: ${String(feature.properties?.magnitude)}${
-                  feature.properties?.qualifier
-                    ? ` (${String(feature.properties.qualifier)})`
-                    : ''
-                }`,
+                `Magnitude: ${magnitude}${qualifier ? ` (${qualifier})` : ''}`,
               ]
             : []),
+          ...(qualifier && qualifier !== 'None' ? [`Qualifier: ${qualifier}`] : []),
           `County: ${String(feature.properties?.county ?? 'Unknown')}`,
         ],
       })
@@ -2047,6 +2092,40 @@ function formatIsoTimestamp(value: string) {
   })
 }
 
+function normalizeFeatureNumber(value: unknown) {
+  const numberValue = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numberValue) ? numberValue : null
+}
+
+function formatReportAge(ageMinutes: number) {
+  if (ageMinutes <= 1) {
+    return 'just now'
+  }
+
+  if (ageMinutes < 60) {
+    return `${Math.round(ageMinutes)} min ago`
+  }
+
+  const roundedMinutes = Math.round(ageMinutes)
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
+
+  if (minutes === 0) {
+    return `${hours}h ago`
+  }
+
+  return `${hours}h ${minutes}m ago`
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
 function buildAlertNarrative(description: string, instruction: string) {
   const parts = [description.trim(), instruction.trim()].filter(Boolean)
   return parts.join('\n\n')
@@ -2090,13 +2169,15 @@ function buildAlertSelectionFromMapFeatures(
       feature.properties?.areaDescription ?? 'Area description unavailable.',
     ),
     accentColor: String(feature.properties?.fillColor ?? '') || undefined,
+    badges: buildAlertBadges(
+      String(feature.properties?.severity ?? 'Unknown'),
+      String(feature.properties?.urgency ?? 'Unknown'),
+    ),
     body: buildAlertNarrative(
       String(feature.properties?.description ?? ''),
       String(feature.properties?.instruction ?? ''),
     ),
     detailLines: [
-      `Severity: ${String(feature.properties?.severity ?? 'Unknown')}`,
-      `Urgency: ${String(feature.properties?.urgency ?? 'Unknown')}`,
       ...(feature.properties?.effective
         ? [`Effective: ${formatIsoTimestamp(String(feature.properties.effective))}`]
         : []),
@@ -2106,6 +2187,25 @@ function buildAlertSelectionFromMapFeatures(
     ],
     relatedAlerts: relatedAlerts.length > 1 ? relatedAlerts : undefined,
   }
+}
+
+function buildAlertBadges(severity: string, urgency: string) {
+  return [
+    {
+      label: 'Severity',
+      value: severity || 'Unknown',
+      tone: isElevatedAlertValue(severity) ? 'danger' as const : 'calm' as const,
+    },
+    {
+      label: 'Urgency',
+      value: urgency || 'Unknown',
+      tone: isElevatedAlertValue(urgency) ? 'danger' as const : 'calm' as const,
+    },
+  ]
+}
+
+function isElevatedAlertValue(value: string) {
+  return ['Extreme', 'Severe', 'Immediate', 'Expected', 'Observed'].includes(value)
 }
 
 function buildSpcSelectionFromFeature(
@@ -2322,6 +2422,190 @@ function buildLocalRadarTileUrl({
   }
 
   return `https://opengeo.ncep.noaa.gov/geoserver/${siteWorkspace}/ows?service=WMS&version=1.1.1&request=GetMap&layers=${layerName}&styles=${styleName}&format=image/png&transparent=true&srs=EPSG:3857&bbox={bbox-epsg-3857}&width=256&height=256${timeParam}&refresh=${refreshBucket}`
+}
+
+function removeNexradStormTracks(map: maplibregl.Map) {
+  if (hasLayerSafe(map, nexradStormTracksLabelLayerId)) {
+    map.removeLayer(nexradStormTracksLabelLayerId)
+  }
+
+  if (hasLayerSafe(map, nexradStormTracksPointLayerId)) {
+    map.removeLayer(nexradStormTracksPointLayerId)
+  }
+
+  if (hasLayerSafe(map, nexradStormTracksLineLayerId)) {
+    map.removeLayer(nexradStormTracksLineLayerId)
+  }
+
+  if (hasSourceSafe(map, nexradStormTracksSourceId)) {
+    map.removeSource(nexradStormTracksSourceId)
+  }
+}
+
+function syncNexradStormTracks(
+  map: maplibregl.Map,
+  tracks: NexradStormTrackFeature[],
+) {
+  const features: GeoJSON.Feature[] = tracks.flatMap((track) => {
+    const trackFeatures: GeoJSON.Feature[] = [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: track.currentCoordinates,
+        },
+        properties: {
+          kind: 'cell',
+          cellId: track.cellId,
+          label:
+            track.speedMph !== null
+              ? `Cell ${track.cellId} | ${track.headingLabel} ${track.speedMph} mph`
+              : `Cell ${track.cellId} | ${track.headingLabel}`,
+          sortRank: 2,
+        },
+      },
+    ]
+
+    if (track.forecastCoordinates.length > 0) {
+      trackFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [track.currentCoordinates, ...track.forecastCoordinates],
+        },
+        properties: {
+          kind: 'track',
+          cellId: track.cellId,
+          label:
+            track.speedMph !== null
+              ? `${track.headingLabel} ${track.speedMph} mph`
+              : track.headingLabel,
+        },
+      })
+    }
+
+    track.forecastCoordinates.forEach((coordinates, index) => {
+      trackFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates,
+        },
+        properties: {
+          kind: 'forecast',
+          cellId: track.cellId,
+          label: `${(index + 1) * 15} min`,
+          sortRank: 1,
+        },
+      })
+    })
+
+    return trackFeatures
+  })
+
+  const data: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features,
+  }
+
+  if (!hasSourceSafe(map, nexradStormTracksSourceId)) {
+    map.addSource(nexradStormTracksSourceId, {
+      type: 'geojson',
+      data,
+    })
+
+    map.addLayer({
+      id: nexradStormTracksLineLayerId,
+      type: 'line',
+      source: nexradStormTracksSourceId,
+      filter: ['==', ['get', 'kind'], 'track'],
+      paint: {
+        'line-color': '#f8fb5f',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 9, 3, 12, 4],
+        'line-dasharray': [1.5, 1.2],
+        'line-opacity': 0.9,
+      },
+    })
+
+    map.addLayer({
+      id: nexradStormTracksPointLayerId,
+      type: 'circle',
+      source: nexradStormTracksSourceId,
+      filter: ['!=', ['get', 'kind'], 'track'],
+      paint: {
+        'circle-radius': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          7,
+          4,
+        ],
+        'circle-color': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          '#f8fb5f',
+          '#ffffff',
+        ],
+        'circle-stroke-color': '#111827',
+        'circle-stroke-width': 1.5,
+      },
+    })
+
+    map.addLayer({
+      id: nexradStormTracksLabelLayerId,
+      type: 'symbol',
+      source: nexradStormTracksSourceId,
+      filter: ['!=', ['get', 'kind'], 'track'],
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-size': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          12,
+          10,
+        ],
+        'text-offset': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          ['literal', [0, -1.45]],
+          ['literal', [0, 1.15]],
+        ],
+        'text-anchor': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          'bottom',
+          'top',
+        ],
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'symbol-sort-key': ['get', 'sortRank'],
+      },
+      paint: {
+        'text-color': [
+          'match',
+          ['get', 'kind'],
+          'cell',
+          '#f8fb5f',
+          '#ffffff',
+        ],
+        'text-halo-color': '#061018',
+        'text-halo-width': 1.8,
+        'text-halo-blur': 0.4,
+      },
+    })
+  } else {
+    const source = getSourceSafe<maplibregl.GeoJSONSource>(
+      map,
+      nexradStormTracksSourceId,
+    )
+    source?.setData(data)
+  }
+
+  nudgeMapRender(map)
 }
 
 function removeStormTrack(map: maplibregl.Map) {

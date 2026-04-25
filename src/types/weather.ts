@@ -91,6 +91,11 @@ export type HazardSelection = {
   summary: string
   accentColor?: string
   body?: string
+  badges?: Array<{
+    label: string
+    value: string
+    tone?: 'danger' | 'calm'
+  }>
   detailLines: string[]
   relatedAlerts?: Array<{
     id: string
@@ -116,6 +121,8 @@ export type LocationWeather = {
     temperature: string
     summary: string
     feelsLike: string
+    dewpoint: string
+    humidity: string
     wind: string
     sky: string
     precip: string
@@ -125,6 +132,15 @@ export type LocationWeather = {
     sunrise: string
     sunset: string
   }
+  outdoor: {
+    uvIndex: string
+    uvRisk: string
+    uvMax: string
+    airQuality: string
+    airQualityRisk: string
+    airQualityDetails: string
+    sourceLabel: string
+  }
   nextHours: HourlyForecastPeriod[]
   forecast: ForecastPeriod[]
   hazards: HazardCard[]
@@ -133,6 +149,17 @@ export type LocationWeather = {
     sourceLabel: string
   }
   services: ServiceCard[]
+}
+
+export type NexradStormTrackFeature = {
+  id: string
+  cellId: string
+  siteId: string
+  observedAt: string
+  currentCoordinates: [number, number]
+  forecastCoordinates: [number, number][]
+  speedMph: number | null
+  headingLabel: string
 }
 
 export type WeatherLoadState = {

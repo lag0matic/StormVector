@@ -1,4 +1,5 @@
 import { buildPointsUrl, fetchJson, nwsHeaders } from './nws'
+import { fetchOutdoorConditions } from './openMeteo'
 import { trimCache } from '../utils/cache'
 import type {
   ForecastPeriod,
@@ -180,6 +181,7 @@ export async function fetchLocationWeather(
         fetchAwcMetar(stationId, signal),
       ).catch(() => null)
     : null
+  const outdoorConditions = await fetchOutdoorConditions(coordinates, signal).catch(() => null)
 
   const currentHour = hourlyForecast.properties.periods[0] ?? null
   const currentGridTime = currentHour ? new Date(currentHour.startTime) : new Date()
@@ -197,6 +199,10 @@ export async function fetchLocationWeather(
   const currentWindGust = normalizeWindGust(
     getGridpointValueAtTime(gridpoint?.properties.windGust?.values, currentGridTime),
     gridpoint?.properties.windGust?.uom,
+  )
+  const currentRelativeHumidity = getGridpointValueAtTime(
+    gridpoint?.properties.relativeHumidity?.values,
+    currentGridTime,
   )
 
   const currentTempF =
@@ -218,6 +224,12 @@ export async function fetchLocationWeather(
           currentApparent,
         )
       : null
+  const currentHumidity =
+    currentRelativeHumidity !== null
+      ? currentRelativeHumidity
+      : currentTempF !== null && currentDewpointF !== null
+        ? relativeHumidityFromTempDewpoint(currentTempF, currentDewpointF)
+        : null
 
   return {
     location: {
@@ -233,6 +245,8 @@ export async function fetchLocationWeather(
         forecast.properties.periods[0]?.shortForecast ??
         'Current conditions unavailable',
       feelsLike: formatTemperature(currentFeelsLike, 'F'),
+      dewpoint: formatTemperature(currentDewpointF, 'F'),
+      humidity: formatPercent(currentHumidity),
       wind: buildCurrentWindSummary(
         currentObservation?.wdir,
         currentObservation?.wspd ?? parseWindSpeedMph(currentHour?.windSpeed),
@@ -247,6 +261,7 @@ export async function fetchLocationWeather(
       sunrise: formatSunTime(point.properties.astronomicalData?.sunrise),
       sunset: formatSunTime(point.properties.astronomicalData?.sunset),
     },
+    outdoor: buildOutdoorSummary(outdoorConditions),
     nextHours: buildNextHours(hourlyForecast.properties.periods.slice(0, 3), gridpoint),
     forecast: buildDailyForecastCards(forecast.properties.periods),
     hazards: buildForecastPlaceholders(),
@@ -277,6 +292,70 @@ export async function fetchLocationWeather(
       },
     ],
   }
+}
+
+function buildOutdoorSummary(
+  outdoorConditions: Awaited<ReturnType<typeof fetchOutdoorConditions>>,
+) {
+  if (!outdoorConditions) {
+    return {
+      uvIndex: 'N/A',
+      uvRisk: 'Unavailable',
+      uvMax: 'N/A',
+      airQuality: 'N/A',
+      airQualityRisk: 'Unavailable',
+      airQualityDetails: 'Outdoor exposure data unavailable',
+      sourceLabel: 'Open-Meteo unavailable',
+    }
+  }
+
+  return {
+    uvIndex: formatIndex(outdoorConditions.uvIndex),
+    uvRisk: describeUvRisk(outdoorConditions.uvIndex),
+    uvMax: formatIndex(outdoorConditions.uvMax),
+    airQuality: formatIndex(outdoorConditions.usAqi),
+    airQualityRisk: describeAqiRisk(outdoorConditions.usAqi),
+    airQualityDetails: buildAirQualityDetails(outdoorConditions),
+    sourceLabel: 'Open-Meteo',
+  }
+}
+
+function formatIndex(value: number | null) {
+  return value === null ? 'N/A' : String(Math.round(value))
+}
+
+function describeUvRisk(value: number | null) {
+  if (value === null) return 'Unavailable'
+  if (value < 3) return 'Low'
+  if (value < 6) return 'Moderate'
+  if (value < 8) return 'High'
+  if (value < 11) return 'Very high'
+  return 'Extreme'
+}
+
+function describeAqiRisk(value: number | null) {
+  if (value === null) return 'Unavailable'
+  if (value <= 50) return 'Good'
+  if (value <= 100) return 'Moderate'
+  if (value <= 150) return 'Unhealthy for sensitive groups'
+  if (value <= 200) return 'Unhealthy'
+  if (value <= 300) return 'Very unhealthy'
+  return 'Hazardous'
+}
+
+function buildAirQualityDetails(
+  outdoorConditions: NonNullable<Awaited<ReturnType<typeof fetchOutdoorConditions>>>,
+) {
+  const details = [
+    outdoorConditions.pm25 !== null
+      ? `PM2.5 ${Math.round(outdoorConditions.pm25)} ug/m3`
+      : null,
+    outdoorConditions.ozone !== null
+      ? `O3 ${Math.round(outdoorConditions.ozone)} ug/m3`
+      : null,
+  ].filter(Boolean)
+
+  return details.join(' · ') || 'AQI details unavailable'
 }
 
 async function fetchAwcMetar(stationId: string, signal?: AbortSignal) {
@@ -546,6 +625,14 @@ function formatTemperature(value?: number | null, unit?: string) {
   }
 
   return `${Math.round(value)}°${unit ?? ''}`
+}
+
+function formatPercent(value?: number | null) {
+  if (value === undefined || value === null || !Number.isFinite(value)) {
+    return '--'
+  }
+
+  return `${Math.round(Math.max(0, Math.min(100, value)))}%`
 }
 
 function formatForecastDay(value: string) {

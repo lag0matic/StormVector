@@ -15,6 +15,7 @@ import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
 import { useLocationWeather } from './hooks/useLocationWeather'
 import { useNearestRadarSite } from './hooks/useNearestRadarSite'
+import { useNexradStormTracks } from './hooks/useNexradStormTracks'
 import { useRadarSites } from './hooks/useRadarSites'
 import { useRegionalRadarTimeline } from './hooks/useRegionalRadarTimeline'
 import { useSatelliteTimeline } from './hooks/useSatelliteTimeline'
@@ -30,6 +31,7 @@ import type {
   AlertFeature,
   HazardSelection,
   LocalStormReportFeature,
+  NexradStormTrackFeature,
 } from './types/weather'
 import { distanceBetweenMiles } from './utils/geo'
 import { formatEtaDuration } from './utils/time'
@@ -65,7 +67,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.3.2'
+const appVersion = 'v1.3.3'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -352,6 +354,18 @@ function App() {
   } = useNearestRadarSite(selectedCoordinates)
   const activeRadarSite =
     radarSites.find((site) => site.id === selectedRadarSiteId) ?? nearestRadarSite
+  const {
+    tracks: nexradStormTracks,
+    loading: nexradStormTracksLoading,
+    error: nexradStormTracksError,
+  } = useNexradStormTracks(
+    activeRadarSite,
+    activeLayer === 'Radar' && radarView === 'local',
+  )
+  const nexradStormTracksObservedAt = useMemo(
+    () => getLatestStormTrackObservedAt(nexradStormTracks),
+    [nexradStormTracks],
+  )
   const {
     definition: localRadarDefinition,
     frames: localRadarFrames,
@@ -1555,6 +1569,7 @@ function App() {
                 alertTypeFilters={alertTypeFilters}
                 localStormReports={recentLocalStormReports}
                 showSpotterReports={showSpotterReports}
+                nexradStormTracks={nexradStormTracks}
                 spcFeatures={spcFeatures}
                 winterFeatures={winterFeatures}
                 activeForecastOverlay={activeForecastOverlay}
@@ -1631,6 +1646,21 @@ function App() {
                     >
                       Reports{recentLocalStormReports.length > 0 ? ` (${recentLocalStormReports.length})` : ''}
                     </button>
+                    {radarView === 'local' ? (
+                      <span
+                        className={
+                          nexradStormTracks.length > 0
+                            ? 'chip active radar-track-chip'
+                            : 'chip radar-track-chip'
+                        }
+                        aria-live="polite"
+                      >
+                        Tracks {nexradStormTracksLoading ? '...' : nexradStormTracks.length}
+                        {nexradStormTracksObservedAt
+                          ? ` / ${formatStormTrackObservedAt(nexradStormTracksObservedAt)}`
+                          : ''}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1745,6 +1775,19 @@ function App() {
                     Use nearest
                   </button>
                 </div>
+              ) : null}
+              {activeLayer === 'Radar' && radarView === 'local' ? (
+                <span className="source-note">
+                  {nexradStormTracksError
+                    ? 'NEXRAD storm tracks unavailable'
+                    : nexradStormTracks.length > 0
+                      ? `${nexradStormTracks.length} NEXRAD storm track${
+                          nexradStormTracks.length === 1 ? '' : 's'
+                        } observed ${formatStormTrackObservedAt(
+                          nexradStormTracksObservedAt,
+                        )}; includes cell motion and 15-minute forecast positions`
+                      : 'No NEXRAD storm tracks in the current local radar product'}
+                </span>
               ) : null}
               <button
                 type="button"
@@ -2089,6 +2132,14 @@ function App() {
                 <strong>{weather.current.feelsLike}</strong>
               </article>
               <article className="current-condition-card">
+                <p className="card-label">Dewpoint</p>
+                <strong>{weather.current.dewpoint}</strong>
+              </article>
+              <article className="current-condition-card">
+                <p className="card-label">Humidity</p>
+                <strong>{weather.current.humidity}</strong>
+              </article>
+              <article className="current-condition-card">
                 <p className="card-label">Wind</p>
                 <strong>{weather.current.wind}</strong>
               </article>
@@ -2102,9 +2153,14 @@ function App() {
               </article>
             </div>
             <div className="sun-row">
-              <span>Sunrise {weather.sun.sunrise}</span>
-              <span>Sunset {weather.sun.sunset}</span>
+              <span className="badge calm">Sunrise {weather.sun.sunrise}</span>
+              <span className="badge calm">UV {weather.outdoor.uvIndex} ({weather.outdoor.uvRisk})</span>
+              <span className="badge calm">AQI {weather.outdoor.airQuality} ({weather.outdoor.airQualityRisk})</span>
+              <span className="badge calm">Sunset {weather.sun.sunset}</span>
             </div>
+            <p className="source-note outdoor-source">
+              Today max UV {weather.outdoor.uvMax} / {weather.outdoor.airQualityDetails} / {weather.outdoor.sourceLabel}
+            </p>
           </section>
 
           <section className="panel side-panel">
@@ -2219,6 +2275,18 @@ function App() {
                         <strong>{selectedHazard.title}</strong>
                       </div>
                       <p className="compact-copy">{selectedHazard.subtitle}</p>
+                      {selectedHazard.badges?.length ? (
+                        <div className="hazard-badge-row">
+                          {selectedHazard.badges.map((badge) => (
+                            <span
+                              key={`${badge.label}-${badge.value}`}
+                              className={`badge ${badge.tone ?? 'calm'}`}
+                            >
+                              {badge.label}: {badge.value}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <p className="compact-copy">{selectedHazard.summary}</p>
                       {selectedHazard.body ? (
                         <div className="hazard-body">{selectedHazard.body}</div>
@@ -2472,9 +2540,58 @@ function formatIsoHazardTimestamp(value: string) {
   })
 }
 
+function formatStormTrackObservedAt(value: string | null) {
+  if (!value) {
+    return 'time unavailable'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'time unavailable'
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 function buildAlertNarrative(description: string, instruction: string) {
   const parts = [description.trim(), instruction.trim()].filter(Boolean)
   return parts.join('\n\n')
+}
+
+function buildAlertBadges(severity: string, urgency: string) {
+  return [
+    {
+      label: 'Severity',
+      value: severity || 'Unknown',
+      tone: isElevatedAlertValue(severity) ? 'danger' as const : 'calm' as const,
+    },
+    {
+      label: 'Urgency',
+      value: urgency || 'Unknown',
+      tone: isElevatedAlertValue(urgency) ? 'danger' as const : 'calm' as const,
+    },
+  ]
+}
+
+function isElevatedAlertValue(value: string) {
+  return ['Extreme', 'Severe', 'Immediate', 'Expected', 'Observed'].includes(value)
+}
+
+function getLatestStormTrackObservedAt(tracks: NexradStormTrackFeature[]) {
+  return tracks.reduce<string | null>((latest, track) => {
+    if (!latest) {
+      return track.observedAt
+    }
+
+    return new Date(track.observedAt).getTime() > new Date(latest).getTime()
+      ? track.observedAt
+      : latest
+  }, null)
 }
 
 function buildAlertSelection(
@@ -2487,10 +2604,9 @@ function buildAlertSelection(
     subtitle: alert.headline,
     summary: alert.areaDescription,
     accentColor: alert.fillColor,
+    badges: buildAlertBadges(alert.severity, alert.urgency),
     body: buildAlertNarrative(alert.description, alert.instruction),
     detailLines: [
-      `Severity: ${alert.severity}`,
-      `Urgency: ${alert.urgency}`,
       ...(alert.effective
         ? [`Effective: ${formatIsoHazardTimestamp(alert.effective)}`]
         : []),
@@ -2532,6 +2648,9 @@ function buildLocalStormReportSelection(
               report.qualifier ? ` (${report.qualifier})` : ''
             }`,
           ]
+        : []),
+      ...(report.qualifier && report.qualifier !== 'None'
+        ? [`Qualifier: ${report.qualifier}`]
         : []),
       `County: ${report.county || 'Unknown'}`,
     ],
