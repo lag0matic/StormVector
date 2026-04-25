@@ -8,18 +8,19 @@ Current stable release: `v1.3.3`
 
 ## What it does
 
-- Regional and local radar
-- Local velocity radar
-- Radar playback
-- GOES satellite imagery with playback
-- Point-and-click NWS forecasts
-- NWS watches and warnings
-- SPC severe outlooks
-- WPC winter outlooks
-- Local storm reports
-- Storm-track / ETA tool
-- Saved home / favorite locations
-- Audible nearby alerting
+- Regional and local NWS radar with playback
+- Local reflectivity and velocity products
+- NEXRAD storm-cell tracks with motion, speed, forecast points, and observed time
+- GOES visible, infrared, and water-vapor satellite imagery with playback
+- Point-and-click NWS forecasts and current conditions
+- Dewpoint, relative humidity, wind, gusts, sky cover, UV index, and air quality
+- NWS watches, warnings, advisories, and alert polygons with severity / urgency details
+- SPC severe-weather outlook overlays
+- WPC winter-weather outlook overlays
+- Recent local storm reports with magnitude, source, age, and remarks
+- Manual storm-track / ETA drawing tool
+- Saved home and favorite locations
+- Audible nearby alerting for watches and warnings
 
 ## Status
 
