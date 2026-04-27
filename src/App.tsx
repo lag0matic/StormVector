@@ -236,6 +236,8 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const nonPassiveCaptureOptions = { capture: true, passive: false }
+    const captureOptions = { capture: true }
     const preventBrowserZoomWheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault()
@@ -254,16 +256,16 @@ function App() {
       event.preventDefault()
     }
 
-    window.addEventListener('wheel', preventBrowserZoomWheel, { passive: false })
-    window.addEventListener('keydown', preventBrowserZoomKeys)
-    window.addEventListener('gesturestart', preventGestureZoom)
-    window.addEventListener('gesturechange', preventGestureZoom)
+    window.addEventListener('wheel', preventBrowserZoomWheel, nonPassiveCaptureOptions)
+    window.addEventListener('keydown', preventBrowserZoomKeys, captureOptions)
+    window.addEventListener('gesturestart', preventGestureZoom, nonPassiveCaptureOptions)
+    window.addEventListener('gesturechange', preventGestureZoom, nonPassiveCaptureOptions)
 
     return () => {
-      window.removeEventListener('wheel', preventBrowserZoomWheel)
-      window.removeEventListener('keydown', preventBrowserZoomKeys)
-      window.removeEventListener('gesturestart', preventGestureZoom)
-      window.removeEventListener('gesturechange', preventGestureZoom)
+      window.removeEventListener('wheel', preventBrowserZoomWheel, nonPassiveCaptureOptions)
+      window.removeEventListener('keydown', preventBrowserZoomKeys, captureOptions)
+      window.removeEventListener('gesturestart', preventGestureZoom, nonPassiveCaptureOptions)
+      window.removeEventListener('gesturechange', preventGestureZoom, nonPassiveCaptureOptions)
     }
   }, [])
 
@@ -3210,4 +3212,3 @@ const OpacitySlider = memo(function OpacitySlider({
     </>
   )
 })
-

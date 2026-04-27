@@ -96,6 +96,13 @@ type BufferedRasterFrame = {
   viewport: ViewportSnapshot
 }
 
+type NativePinchZoomEvent = CustomEvent<{
+  deltaY?: number
+  scale?: number
+  clientX: number
+  clientY: number
+}>
+
 const lightBasemapSourceId = 'light-basemap'
 const lightBasemapLayerId = 'light-basemap-layer'
 const darkBasemapSourceId = 'dark-basemap'
@@ -129,6 +136,9 @@ const stormTrackSourceId = 'storm-track-source'
 const stormTrackLineLayerId = 'storm-track-line'
 const stormTrackPointLayerId = 'storm-track-point'
 const clickTolerancePixels = 6
+const nativePinchZoomScaleRate = 0.35
+const nativePinchWheelRate = 0.03
+const maxNativePinchZoomDelta = 0.18
 
 export const MapCanvas = memo(function MapCanvas({
   center,
@@ -299,6 +309,46 @@ export const MapCanvas = memo(function MapCanvas({
     map.getCanvas().addEventListener('contextmenu', (event) => {
       event.preventDefault()
     })
+    const handleNativePinchZoom = (event: Event) => {
+      const { clientX, clientY, deltaY, scale } = (event as NativePinchZoomEvent).detail
+      const containerBounds = containerRef.current?.getBoundingClientRect()
+      if (
+        !containerBounds ||
+        clientX < containerBounds.left ||
+        clientX > containerBounds.right ||
+        clientY < containerBounds.top ||
+        clientY > containerBounds.bottom
+      ) {
+        return
+      }
+
+      const zoomDelta =
+        typeof scale === 'number'
+          ? clamp(
+              Math.log2(scale) * nativePinchZoomScaleRate,
+              -maxNativePinchZoomDelta,
+              maxNativePinchZoomDelta,
+            )
+          : clamp(
+              -(deltaY ?? 0) * nativePinchWheelRate,
+              -maxNativePinchZoomDelta,
+              maxNativePinchZoomDelta,
+            )
+      if (zoomDelta === 0) {
+        return
+      }
+
+      const point = new maplibregl.Point(
+        clientX - containerBounds.left,
+        clientY - containerBounds.top,
+      )
+      map.zoomTo(map.getZoom() + zoomDelta, {
+        around: map.unproject(point),
+        duration: 0,
+      })
+    }
+
+    window.addEventListener('stormvector:native-pinch-zoom', handleNativePinchZoom)
     map.on('mousedown', (event) => {
       if (event.originalEvent.button !== 0) {
         pointerDownPointRef.current = null
@@ -477,6 +527,7 @@ export const MapCanvas = memo(function MapCanvas({
       alertPopupRef.current = null
       markerRef.current?.remove()
       markerRef.current = null
+      window.removeEventListener('stormvector:native-pinch-zoom', handleNativePinchZoom)
       setRequestViewport(null)
       setProjectedTrackLabels([])
       map.remove()
@@ -3015,6 +3066,10 @@ function setFilterSafe(
   } catch {
     return
   }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function buildAlertTypeFilter(alertTypeFilters: MapCanvasProps['alertTypeFilters']) {

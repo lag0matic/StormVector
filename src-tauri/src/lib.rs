@@ -3,8 +3,10 @@ use std::time::Duration;
 
 use rodio::source::SineWave;
 use rodio::{OutputStream, Sink, Source};
+use tauri::Manager;
 
 const NEXRAD_LEVEL3_HOST: &str = "https://unidata-nexrad-level3.s3.amazonaws.com/";
+const WEBVIEW_ZOOM_LEVEL: f64 = 1.0;
 
 #[tauri::command]
 fn play_alert_tone(tone: String) -> Result<(), String> {
@@ -68,6 +70,82 @@ async fn fetch_nexrad_level3(url: String) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("NEXRAD response read failed: {error}"))
 }
 
+#[cfg(target_os = "linux")]
+fn lock_webview_zoom(app: &tauri::App) -> tauri::Result<()> {
+    let Some(webview_window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+
+    webview_window.with_webview(|webview| {
+        use gdk::{EventTouchpadPinch, EventType, ModifierType, ScrollDirection};
+        use gtk::prelude::*;
+        use webkit2gtk::WebViewExt;
+
+        let webview = webview.inner();
+        webview.set_zoom_level(WEBVIEW_ZOOM_LEVEL);
+        webview.connect_zoom_level_notify(|webview| {
+            if (webview.zoom_level() - WEBVIEW_ZOOM_LEVEL).abs() > f64::EPSILON {
+                webview.set_zoom_level(WEBVIEW_ZOOM_LEVEL);
+            }
+        });
+
+        webview.connect_scroll_event(|webview, event| {
+            if !event.state().contains(ModifierType::CONTROL_MASK) {
+                return gtk::glib::Propagation::Proceed;
+            }
+
+            let (x, y) = event.position();
+            let (_, smooth_delta_y) = event.delta();
+            let delta_y = match event.direction() {
+                ScrollDirection::Up => -1.0,
+                ScrollDirection::Down => 1.0,
+                ScrollDirection::Smooth if smooth_delta_y != 0.0 => smooth_delta_y,
+                _ => return gtk::glib::Propagation::Stop,
+            };
+            let script = format!(
+                "window.dispatchEvent(new CustomEvent('stormvector:native-pinch-zoom', {{ detail: {{ deltaY: {delta_y}, clientX: {x}, clientY: {y} }} }}));",
+            );
+
+            webview.evaluate_javascript(
+                &script,
+                None,
+                None,
+                None::<&webkit2gtk::gio::Cancellable>,
+                |_| {},
+            );
+            gtk::glib::Propagation::Stop
+        });
+        webview.connect_event(|webview, event| {
+            if event.event_type() != EventType::TouchpadPinch {
+                return gtk::glib::Propagation::Proceed;
+            }
+
+            let Some(event) = event.downcast_ref::<EventTouchpadPinch>() else {
+                return gtk::glib::Propagation::Stop;
+            };
+            let (x, y) = event.position();
+            let scale = event.scale();
+            let script = format!(
+                "window.dispatchEvent(new CustomEvent('stormvector:native-pinch-zoom', {{ detail: {{ scale: {scale}, clientX: {x}, clientY: {y} }} }}));",
+            );
+
+            webview.evaluate_javascript(
+                &script,
+                None,
+                None,
+                None::<&webkit2gtk::gio::Cancellable>,
+                |_| {},
+            );
+            gtk::glib::Propagation::Stop
+        });
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn lock_webview_zoom(_app: &tauri::App) -> tauri::Result<()> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -83,6 +161,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            lock_webview_zoom(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())
