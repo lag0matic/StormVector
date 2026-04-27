@@ -3,9 +3,11 @@ use std::time::Duration;
 
 use rodio::source::SineWave;
 use rodio::{OutputStream, Sink, Source};
+#[cfg(target_os = "linux")]
 use tauri::Manager;
 
 const NEXRAD_LEVEL3_HOST: &str = "https://unidata-nexrad-level3.s3.amazonaws.com/";
+#[cfg(target_os = "linux")]
 const WEBVIEW_ZOOM_LEVEL: f64 = 1.0;
 
 #[tauri::command]

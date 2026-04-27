@@ -204,6 +204,11 @@ export async function fetchLocationWeather(
     gridpoint?.properties.relativeHumidity?.values,
     currentGridTime,
   )
+  const currentGridDewpoint = normalizeGridpointTemperature(
+    getGridpointValueAtTime(gridpoint?.properties.dewpoint?.values, currentGridTime),
+    gridpoint?.properties.dewpoint?.uom,
+    'F',
+  )
 
   const currentTempF =
     currentObservation?.temp !== undefined && currentObservation?.temp !== null
@@ -213,7 +218,7 @@ export async function fetchLocationWeather(
   const currentDewpointF =
     currentObservation?.dewp !== undefined && currentObservation?.dewp !== null
       ? celsiusToFahrenheit(currentObservation.dewp)
-      : null
+      : currentGridDewpoint
 
   const currentFeelsLike =
     currentTempF !== null
@@ -255,7 +260,9 @@ export async function fetchLocationWeather(
       ),
       sky: normalizeSkyCover(currentObservation, currentSkyCover),
       precip: normalizeCurrentPrecip(currentObservation),
-      lastUpdated: formatObservationTimestamp(currentObservation?.reportTime),
+      lastUpdated: formatObservationTimestamp(
+        currentObservation?.reportTime ?? currentHour?.startTime,
+      ),
     },
     sun: {
       sunrise: formatSunTime(point.properties.astronomicalData?.sunrise),
