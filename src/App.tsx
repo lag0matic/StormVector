@@ -11,6 +11,7 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import './App.css'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
+import { useFutureRadarTimeline } from './hooks/useFutureRadarTimeline'
 import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
 import { useLocationWeather } from './hooks/useLocationWeather'
@@ -23,6 +24,7 @@ import { useSpcOutlookPolygons } from './hooks/useSpcOutlookPolygons'
 import { useStormTrackPlaces } from './hooks/useStormTrackPlaces'
 import { useWinterOutlookPolygons } from './hooks/useWinterOutlookPolygons'
 import { geocodeLocation } from './services/geocode'
+import type { FutureRadarProduct } from './services/futureRadar'
 import {
   defaultSatelliteLayers,
   type SatelliteLayerId,
@@ -67,7 +69,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.3.3'
+const appVersion = 'v1.3.4'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -76,9 +78,13 @@ const localRadarProducts = [
   { id: 'reflectivity', label: 'Local Reflectivity' },
   { id: 'velocity', label: 'Velocity' },
 ] as const
+const futureRadarProducts = [
+  { id: 'hrrr-reflectivity', label: 'Sim Reflectivity' },
+] as const
 const radarViews = [
   { id: 'regional', label: 'Regional' },
   { id: 'local', label: 'Local' },
+  { id: 'future', label: 'Future' },
 ] as const
 const MapCanvas = lazy(() =>
   import('./components/MapCanvas').then((module) => ({
@@ -296,6 +302,7 @@ function App() {
     useState<
       | (typeof regionalRadarProducts)[number]['id']
       | (typeof localRadarProducts)[number]['id']
+      | (typeof futureRadarProducts)[number]['id']
     >('base')
   const [radarView, setRadarView] =
     useState<(typeof radarViews)[number]['id']>('regional')
@@ -326,6 +333,9 @@ function App() {
   const [selectedLocalRadarFrameIndex, setSelectedLocalRadarFrameIndex] = useState(0)
   const [localPlaybackRunning, setLocalPlaybackRunning] = useState(false)
   const [followLatestFrame, setFollowLatestFrame] = useState(true)
+  const [selectedFutureRadarFrameIndex, setSelectedFutureRadarFrameIndex] =
+    useState(0)
+  const [futurePlaybackRunning, setFuturePlaybackRunning] = useState(false)
   const [searchText, setSearchText] = useState(
     homeLocation?.label ?? defaultLocationLabel,
   )
@@ -402,13 +412,28 @@ function App() {
     error: regionalRadarTimelineError,
   } = useRegionalRadarTimeline(radarProduct === 'composite' ? 'composite' : 'base')
   const {
+    frames: futureRadarFrames,
+    loading: futureRadarTimelineLoading,
+    error: futureRadarTimelineError,
+  } = useFutureRadarTimeline(
+    radarProduct === 'hrrr-reflectivity'
+      ? (radarProduct as FutureRadarProduct)
+      : 'hrrr-reflectivity',
+    activeLayer === 'Radar' && radarView === 'future',
+  )
+  const {
     frames: satelliteFrames,
     loading: satelliteTimelineLoading,
     error: satelliteTimelineError,
   } = useSatelliteTimeline(satelliteLayer)
 
   const activeRadarProducts = useMemo(
-    () => (radarView === 'regional' ? regionalRadarProducts : localRadarProducts),
+    () =>
+      radarView === 'regional'
+        ? regionalRadarProducts
+        : radarView === 'future'
+          ? futureRadarProducts
+          : localRadarProducts,
     [radarView],
   )
   const playbackIntervalMs = useMemo(
@@ -428,6 +453,7 @@ function App() {
     () => filterFramesToWindow(satelliteFrames, playbackWindowMinutes),
     [satelliteFrames, playbackWindowMinutes],
   )
+  const activeFutureRadarFrames = futureRadarFrames
   const latestRegionalRadarFrame = useMemo(
     () => activeRegionalRadarFrames[activeRegionalRadarFrames.length - 1] ?? null,
     [activeRegionalRadarFrames],
@@ -439,6 +465,18 @@ function App() {
   const latestSatelliteFrame = useMemo(
     () => activeSatelliteFrames[activeSatelliteFrames.length - 1] ?? null,
     [activeSatelliteFrames],
+  )
+  const selectedFutureRadarFrame = useMemo(
+    () =>
+      radarView === 'future' && activeFutureRadarFrames.length > 0
+        ? activeFutureRadarFrames[
+            Math.min(
+              selectedFutureRadarFrameIndex,
+              activeFutureRadarFrames.length - 1,
+            )
+          ]
+        : null,
+    [activeFutureRadarFrames, radarView, selectedFutureRadarFrameIndex],
   )
   const selectedRegionalRadarTime = useMemo(
     () =>
@@ -477,8 +515,17 @@ function App() {
         ? activeSatelliteFrames
         : radarView === 'regional'
           ? activeRegionalRadarFrames
-          : activeLocalRadarFrames,
-    [activeLayer, activeLocalRadarFrames, activeRegionalRadarFrames, activeSatelliteFrames, radarView],
+          : radarView === 'future'
+            ? activeFutureRadarFrames.map((frame) => frame.validTime)
+            : activeLocalRadarFrames,
+    [
+      activeFutureRadarFrames,
+      activeLayer,
+      activeLocalRadarFrames,
+      activeRegionalRadarFrames,
+      activeSatelliteFrames,
+      radarView,
+    ],
   )
 
   const activePlaybackIndex = useMemo(() => {
@@ -497,25 +544,49 @@ function App() {
       return Math.min(selectedLocalRadarFrameIndex, activeLocalRadarFrames.length - 1)
     }
 
+    if (radarView === 'future' && activeFutureRadarFrames.length > 0) {
+      return Math.min(
+        selectedFutureRadarFrameIndex,
+        activeFutureRadarFrames.length - 1,
+      )
+    }
+
     return 0
   }, [
+    activeFutureRadarFrames,
     activeLayer,
     activeLocalRadarFrames,
     activeRegionalRadarFrames,
     activeSatelliteFrames,
     radarView,
+    selectedFutureRadarFrameIndex,
     selectedLocalRadarFrameIndex,
     selectedRegionalRadarFrameIndex,
     selectedSatelliteFrameIndex,
   ])
   const activePlaybackLabel = useMemo(
-    () =>
-      currentTimelineFrames.length > 0
+    () => {
+      if (activeLayer === 'Radar' && radarView === 'future') {
+        return selectedFutureRadarFrame
+          ? `${selectedFutureRadarFrame.label} ${formatFrameLabel(
+              selectedFutureRadarFrame.validTime,
+            )}`
+          : 'Future radar'
+      }
+
+      return currentTimelineFrames.length > 0
         ? activePlaybackIndex === currentTimelineFrames.length - 1
           ? 'Live'
           : formatFrameLabel(currentTimelineFrames[activePlaybackIndex])
-        : playbackFrames[0],
-    [activePlaybackIndex, currentTimelineFrames],
+        : playbackFrames[0]
+    },
+    [
+      activeLayer,
+      activePlaybackIndex,
+      currentTimelineFrames,
+      radarView,
+      selectedFutureRadarFrame,
+    ],
   )
   const visibleAlertFeatures = useMemo(
     () => alertFeatures.filter((feature) => alertTypeFilters[feature.alertType]),
@@ -635,6 +706,16 @@ function App() {
             : regionalRadarTimelineError ?? 'Regional playback unavailable'
       }
 
+      if (radarView === 'future') {
+        return selectedFutureRadarFrame
+          ? `${formatFrameTimestamp(
+              selectedFutureRadarFrame.validTime,
+            )} valid (${selectedFutureRadarFrame.label})`
+          : futureRadarTimelineLoading
+            ? 'Loading HRRR guidance...'
+            : futureRadarTimelineError ?? 'Future radar unavailable'
+      }
+
       return selectedLocalRadarTime
         ? formatFrameTimestamp(selectedLocalRadarTime)
         : localRadarTimelineLoading
@@ -662,6 +743,8 @@ function App() {
   }, [
     activeForecastOverlay,
     activeLayer,
+    futureRadarTimelineError,
+    futureRadarTimelineLoading,
     localRadarTimelineError,
     localRadarTimelineLoading,
     radarView,
@@ -670,6 +753,7 @@ function App() {
     satelliteTimelineError,
     satelliteTimelineLoading,
     selectedLocalRadarTime,
+    selectedFutureRadarFrame,
     selectedRegionalRadarTime,
     selectedSatelliteTime,
     spcFeatures.length,
@@ -684,6 +768,14 @@ function App() {
           : nearestRadarLoading
             ? 'Resolving site...'
             : nearestRadarError ?? null
+      }
+
+      if (radarView === 'future') {
+        return selectedFutureRadarFrame
+          ? `HRRR run ${formatUtcRunHour(
+              selectedFutureRadarFrame.runTime,
+            )}; model guidance, not observed radar`
+          : 'HRRR simulated reflectivity'
       }
 
       if (showSpotterReports) {
@@ -717,6 +809,7 @@ function App() {
     nearestRadarLoading,
     radarView,
     recentLocalStormReports.length,
+    selectedFutureRadarFrame,
     selectedRadarSiteId,
     selectedSpcDay,
     selectedWinterDay,
@@ -1010,6 +1103,44 @@ function App() {
   }, [
     activeLocalRadarFrames.length,
     localPlaybackRunning,
+    playbackIntervalMs,
+    radarView,
+  ])
+
+  useEffect(() => {
+    if (
+      radarView === 'future' &&
+      activeFutureRadarFrames.length > 0 &&
+      selectedFutureRadarFrameIndex > activeFutureRadarFrames.length - 1
+    ) {
+      setSelectedFutureRadarFrameIndex(activeFutureRadarFrames.length - 1)
+    }
+  }, [
+    activeFutureRadarFrames.length,
+    radarView,
+    selectedFutureRadarFrameIndex,
+  ])
+
+  useEffect(() => {
+    if (
+      radarView !== 'future' ||
+      !futurePlaybackRunning ||
+      activeFutureRadarFrames.length < 2
+    ) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setSelectedFutureRadarFrameIndex((current) => {
+        const next = current + 1
+        return next >= activeFutureRadarFrames.length ? 0 : next
+      })
+    }, playbackIntervalMs)
+
+    return () => window.clearInterval(interval)
+  }, [
+    activeFutureRadarFrames.length,
+    futurePlaybackRunning,
     playbackIntervalMs,
     radarView,
   ])
@@ -1559,6 +1690,7 @@ function App() {
                 watchOpacity={layerOpacity.watches / 100}
                 polygonOpacity={layerOpacity.polygons / 100}
                 selectedRegionalRadarTime={selectedRegionalRadarTime}
+                selectedFutureRadarFrame={selectedFutureRadarFrame}
                 selectedSatelliteTime={selectedSatelliteTime}
                 radarSites={radarSites}
                 nearestRadarSite={activeRadarSite}
@@ -1602,7 +1734,13 @@ function App() {
                         className={radarView === view.id ? 'chip active' : 'chip'}
                         onClick={() => {
                           setRadarView(view.id)
-                          setRadarProduct(view.id === 'regional' ? 'base' : 'reflectivity')
+                          setRadarProduct(
+                            view.id === 'regional'
+                              ? 'base'
+                              : view.id === 'future'
+                                ? 'hrrr-reflectivity'
+                                : 'reflectivity',
+                          )
                           if (view.id === 'regional') {
                             setSelectedRadarSiteId(null)
                           }
@@ -1612,6 +1750,8 @@ function App() {
                           setSelectedLocalRadarFrameIndex(0)
                           setFollowLatestFrame(true)
                           setLocalPlaybackRunning(false)
+                          setSelectedFutureRadarFrameIndex(0)
+                          setFuturePlaybackRunning(false)
                         }}
                       >
                         {view.label}
@@ -1903,25 +2043,35 @@ function App() {
             <div className="map-floating map-floating-bottom-center">
               <footer className="timeline-panel map-glass">
               <div className="timeline-header">
-                <p className="eyebrow">Playback</p>
+                <p className="eyebrow">
+                  {activeLayer === 'Radar' && radarView === 'future'
+                    ? 'Forecast Playback'
+                    : 'Playback'}
+                </p>
                 <h3>{activePlaybackLabel}</h3>
               </div>
 
               <div className="timeline-controls">
-                <div className="chip-group" aria-label="Playback range">
-                  {playbackWindows.map((windowOption) => (
-                    <button
-                      key={windowOption.id}
-                      type="button"
-                      className={
-                        playbackWindowMinutes === windowOption.id ? 'chip active' : 'chip'
-                      }
-                      onClick={() => setPlaybackWindowMinutes(windowOption.id)}
-                    >
-                      {windowOption.label}
-                    </button>
-                  ))}
-                </div>
+                {activeLayer === 'Radar' && radarView === 'future' ? (
+                  <span className="source-note">
+                    HRRR forecast hours from the latest model run
+                  </span>
+                ) : (
+                  <div className="chip-group" aria-label="Playback range">
+                    {playbackWindows.map((windowOption) => (
+                      <button
+                        key={windowOption.id}
+                        type="button"
+                        className={
+                          playbackWindowMinutes === windowOption.id ? 'chip active' : 'chip'
+                        }
+                        onClick={() => setPlaybackWindowMinutes(windowOption.id)}
+                      >
+                        {windowOption.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="chip-group" aria-label="Playback speed">
                   {playbackSpeeds.map((speed) => (
@@ -1946,7 +2096,9 @@ function App() {
                       ? activeSatelliteFrames.length < 2
                       : radarView === 'regional'
                         ? activeRegionalRadarFrames.length < 2
-                        : activeLocalRadarFrames.length < 2
+                        : radarView === 'future'
+                          ? activeFutureRadarFrames.length < 2
+                          : activeLocalRadarFrames.length < 2
                   }
                   onClick={() => {
                     if (activeLayer === 'Satellite') {
@@ -1975,6 +2127,15 @@ function App() {
                       return
                     }
 
+                    if (radarView === 'future') {
+                      if (activeFutureRadarFrames.length > 1) {
+                        setSelectedFutureRadarFrameIndex(0)
+                      }
+
+                      setFuturePlaybackRunning((current) => !current)
+                      return
+                    }
+
                     if (followLatestFrame && activeLocalRadarFrames.length > 1) {
                       setSelectedLocalRadarFrameIndex(0)
                     }
@@ -1991,6 +2152,10 @@ function App() {
                       ? regionalPlaybackRunning
                         ? 'Pause'
                         : 'Play'
+                      : radarView === 'future'
+                        ? futurePlaybackRunning
+                          ? 'Pause'
+                          : 'Play'
                       : localPlaybackRunning
                         ? 'Pause'
                         : 'Play'}
@@ -2003,7 +2168,9 @@ function App() {
                       ? activeSatelliteFrames.length === 0
                       : radarView === 'regional'
                         ? activeRegionalRadarFrames.length === 0
-                        : activeLocalRadarFrames.length === 0
+                        : radarView === 'future'
+                          ? activeFutureRadarFrames.length === 0
+                          : activeLocalRadarFrames.length === 0
                   }
                   onClick={() => {
                     if (activeLayer === 'Satellite') {
@@ -2024,6 +2191,12 @@ function App() {
                       return
                     }
 
+                    if (radarView === 'future') {
+                      setFuturePlaybackRunning(false)
+                      setSelectedFutureRadarFrameIndex(0)
+                      return
+                    }
+
                     setLocalPlaybackRunning(false)
                     setFollowLatestFrame(true)
                     setSelectedLocalRadarFrameIndex(
@@ -2031,7 +2204,7 @@ function App() {
                     )
                   }}
                 >
-                  Live
+                  {activeLayer === 'Radar' && radarView === 'future' ? 'Run start' : 'Live'}
                 </button>
               </div>
 
@@ -2070,6 +2243,12 @@ function App() {
                       return
                     }
 
+                    if (radarView === 'future' && activeFutureRadarFrames.length > 0) {
+                      setFuturePlaybackRunning(false)
+                      setSelectedFutureRadarFrameIndex(index)
+                      return
+                    }
+
                     if (radarView === 'local' && activeLocalRadarFrames.length > 0) {
                       setLocalPlaybackRunning(false)
                       setFollowLatestFrame(
@@ -2081,7 +2260,11 @@ function App() {
                 />
                 <span className="timeline-edge">
                   {currentTimelineFrames.length > 0
-                    ? 'Live'
+                    ? activeLayer === 'Radar' && radarView === 'future'
+                      ? formatFrameLabel(
+                          currentTimelineFrames[currentTimelineFrames.length - 1],
+                        )
+                      : 'Live'
                     : 'End'}
                 </span>
               </div>
@@ -2466,6 +2649,23 @@ function formatFrameTimestamp(frame: string) {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+function formatUtcRunHour(frame: string) {
+  const date = new Date(frame)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'unknown'
+  }
+
+  const day = date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+  const hour = String(date.getUTCHours()).padStart(2, '0')
+
+  return `${day} ${hour}Z`
 }
 
 function getSpcRank(category: string) {

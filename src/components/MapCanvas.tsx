@@ -6,6 +6,10 @@ import {
   type RadarSite,
 } from '../services/radar'
 import {
+  getFutureRadarImageCoordinates,
+  type FutureRadarFrame,
+} from '../services/futureRadar'
+import {
   buildSatelliteImageUrl,
   type SatelliteLayerId,
 } from '../services/satellite'
@@ -25,8 +29,8 @@ type MapCanvasProps = {
   shouldRecenterMap: boolean
   themeMode: 'light' | 'dark'
   activeLayer: string
-  radarProduct: 'base' | 'composite' | 'reflectivity' | 'velocity'
-  radarView: 'regional' | 'local'
+  radarProduct: 'base' | 'composite' | 'reflectivity' | 'velocity' | 'hrrr-reflectivity'
+  radarView: 'regional' | 'local' | 'future'
   satelliteLayer: SatelliteLayerId
   radarOpacity: number
   satelliteOpacity: number
@@ -34,6 +38,7 @@ type MapCanvasProps = {
   watchOpacity: number
   polygonOpacity: number
   selectedRegionalRadarTime: string | null
+  selectedFutureRadarFrame: FutureRadarFrame | null
   selectedSatelliteTime: string | null
   radarSites: RadarSite[]
   nearestRadarSite: RadarSite | null
@@ -99,6 +104,8 @@ const regionalRadarSourceId = 'regional-radar-source'
 const regionalRadarLayerId = 'regional-radar-layer'
 const localRadarSourceId = 'local-radar-source'
 const localRadarLayerId = 'local-radar-layer'
+const futureRadarSourceId = 'future-radar-source'
+const futureRadarLayerId = 'future-radar-layer'
 const radarSitesSourceId = 'nws-radar-sites'
 const radarSitesLayerId = 'nws-radar-sites-layer'
 const selectedRadarSiteLayerId = 'nws-selected-radar-site-layer'
@@ -137,6 +144,7 @@ export const MapCanvas = memo(function MapCanvas({
   watchOpacity,
   polygonOpacity,
   selectedRegionalRadarTime,
+  selectedFutureRadarFrame,
   selectedSatelliteTime,
   radarSites,
   nearestRadarSite,
@@ -186,6 +194,7 @@ export const MapCanvas = memo(function MapCanvas({
   const stormTrackPreviewEndRef = useRef<[number, number] | null>(null)
   const regionalRadarSignatureRef = useRef<string | null>(null)
   const localRadarSignatureRef = useRef<string | null>(null)
+  const futureRadarSignatureRef = useRef<string | null>(null)
   const onStormTrackOriginSetRef = useRef(onStormTrackOriginSet)
   const onStormTrackEndSetRef = useRef(onStormTrackEndSet)
   const trackToolEnabledRef = useRef(trackToolEnabled)
@@ -1172,6 +1181,21 @@ export const MapCanvas = memo(function MapCanvas({
         localStormReportsLayerId,
         activeLayer === 'Radar' && showSpotterReports,
       )
+      setLayerVisibility(
+        map,
+        regionalRadarLayerId,
+        activeLayer === 'Radar' && radarView === 'regional',
+      )
+      setLayerVisibility(
+        map,
+        localRadarLayerId,
+        activeLayer === 'Radar' && radarView === 'local',
+      )
+      setLayerVisibility(
+        map,
+        futureRadarLayerId,
+        activeLayer === 'Radar' && radarView === 'future',
+      )
     }
 
     return runWhenStyleLoaded(map, syncLayerVisibility)
@@ -1885,15 +1909,22 @@ export const MapCanvas = memo(function MapCanvas({
     if (activeLayer !== 'Radar') {
       setLayerVisibility(map, regionalRadarLayerId, false)
       setLayerVisibility(map, localRadarLayerId, false)
+      setLayerVisibility(map, futureRadarLayerId, false)
       return
     }
 
     if (radarView === 'regional') {
       setLayerVisibility(map, regionalRadarLayerId, true)
       setLayerVisibility(map, localRadarLayerId, false)
-    } else {
+      setLayerVisibility(map, futureRadarLayerId, false)
+    } else if (radarView === 'local') {
       setLayerVisibility(map, localRadarLayerId, true)
       setLayerVisibility(map, regionalRadarLayerId, false)
+      setLayerVisibility(map, futureRadarLayerId, false)
+    } else {
+      setLayerVisibility(map, futureRadarLayerId, true)
+      setLayerVisibility(map, regionalRadarLayerId, false)
+      setLayerVisibility(map, localRadarLayerId, false)
     }
   }, [activeLayer, radarView])
 
@@ -1986,6 +2017,80 @@ export const MapCanvas = memo(function MapCanvas({
     radarView,
     selectedLocalRadarTime,
   ])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
+    const isVisible =
+      activeLayer === 'Radar' &&
+      radarView === 'future' &&
+      selectedFutureRadarFrame
+    const sourceSignature = selectedFutureRadarFrame?.imageUrl ?? ''
+
+    const applyFutureRadarLayer = () => {
+      if (!isVisible || !selectedFutureRadarFrame) {
+        setLayerVisibility(map, futureRadarLayerId, false)
+        return
+      }
+
+      const coordinates = getFutureRadarImageCoordinates()
+
+      if (!hasSourceSafe(map, futureRadarSourceId)) {
+        map.addSource(futureRadarSourceId, {
+          type: 'image',
+          url: selectedFutureRadarFrame.imageUrl,
+          coordinates,
+        })
+      } else if (futureRadarSignatureRef.current !== sourceSignature) {
+        const source = getSourceSafe<
+          maplibregl.ImageSource & {
+            updateImage?: (image: {
+              url: string
+              coordinates: ReturnType<typeof getFutureRadarImageCoordinates>
+            }) => void
+          }
+        >(map, futureRadarSourceId)
+        source?.updateImage?.({
+          url: selectedFutureRadarFrame.imageUrl,
+          coordinates,
+        })
+      }
+
+      if (!hasLayerSafe(map, futureRadarLayerId)) {
+        const beforeLayerId = hasLayerSafe(map, alertPolygonsFillLayerId)
+          ? alertPolygonsFillLayerId
+          : undefined
+
+        map.addLayer(
+          {
+            id: futureRadarLayerId,
+            type: 'raster',
+            source: futureRadarSourceId,
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'raster-opacity': radarOpacity,
+              'raster-fade-duration': 320,
+            },
+          },
+          beforeLayerId,
+        )
+      }
+
+      futureRadarSignatureRef.current = sourceSignature
+      setLayerVisibility(map, futureRadarLayerId, true)
+      setPaintPropertySafe(map, futureRadarLayerId, 'raster-opacity', radarOpacity)
+
+      nudgeMapRender(map)
+    }
+
+    return runWhenStyleLoaded(map, applyFutureRadarLayer)
+  }, [activeLayer, radarOpacity, radarView, selectedFutureRadarFrame])
 
   const satelliteOverlayUrl =
     requestViewport && activeLayer === 'Satellite'
