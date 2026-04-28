@@ -7,7 +7,6 @@ use std::{env, fs};
 use rodio::source::SineWave;
 use rodio::{OutputStream, Sink, Source};
 use serde::Serialize;
-#[cfg(target_os = "linux")]
 use tauri::Manager;
 
 const NEXRAD_LEVEL3_HOST: &str = "https://unidata-nexrad-level3.s3.amazonaws.com/";
@@ -47,6 +46,11 @@ struct LightningBucket {
     lat: f64,
     lon: f64,
     approx_strikes: f64,
+}
+
+struct DecoderRuntime {
+    executable: PathBuf,
+    library_dir: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -112,7 +116,9 @@ async fn fetch_nexrad_level3(url: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-async fn fetch_lightning_activity() -> Result<LightningActivityResponse, String> {
+async fn fetch_lightning_activity(
+    app: tauri::AppHandle,
+) -> Result<LightningActivityResponse, String> {
     let response = reqwest::get(LIGHTNING_DENSITY_URL)
         .await
         .map_err(|error| format!("Lightning request failed: {error}"))?;
@@ -136,9 +142,10 @@ async fn fetch_lightning_activity() -> Result<LightningActivityResponse, String>
     fs::write(&grib_path, &grib_bytes)
         .map_err(|error| format!("Lightning GRIB write failed: {error}"))?;
 
-    let wgrib_path = find_wgrib2()
+    let decoder = find_wgrib2(&app)
         .ok_or_else(|| "wgrib2 decoder was not found locally or on PATH.".to_string())?;
-    let output = Command::new(&wgrib_path)
+    let mut command = Command::new(&decoder.executable);
+    command
         .arg(&grib_path)
         .arg("-no_header")
         .arg("-order")
@@ -146,7 +153,13 @@ async fn fetch_lightning_activity() -> Result<LightningActivityResponse, String>
         .arg("-bin")
         .arg(&bin_path)
         .env("OMP_NUM_THREADS", "2")
-        .env("OMP_WAIT_POLICY", "PASSIVE")
+        .env("OMP_WAIT_POLICY", "PASSIVE");
+
+    if let Some(library_dir) = decoder.library_dir {
+        add_decoder_library_path(&mut command, &library_dir);
+    }
+
+    let output = command
         .output()
         .map_err(|error| format!("Lightning decoder failed to start: {error}"))?;
 
@@ -165,11 +178,14 @@ async fn fetch_lightning_activity() -> Result<LightningActivityResponse, String>
     })
 }
 
-fn find_wgrib2() -> Option<PathBuf> {
+fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
     if let Ok(path) = env::var("STORMVECTOR_WGRIB2_PATH") {
         let candidate = PathBuf::from(path);
         if candidate.exists() {
-            return Some(candidate);
+            return Some(DecoderRuntime {
+                executable: candidate,
+                library_dir: None,
+            });
         }
     }
 
@@ -178,16 +194,55 @@ fn find_wgrib2() -> Option<PathBuf> {
     } else {
         "wgrib2"
     };
+    let platform_dir = if cfg!(target_os = "windows") {
+        "windows-x64"
+    } else {
+        "linux-x64"
+    };
+    let packaged_executable = if cfg!(target_os = "windows") {
+        Path::new("wgrib2").join(platform_dir).join(executable_name)
+    } else {
+        Path::new("wgrib2")
+            .join(platform_dir)
+            .join("bin")
+            .join(executable_name)
+    };
+    let packaged_library_dir = if cfg!(target_os = "linux") {
+        Some(Path::new("wgrib2").join(platform_dir).join("lib"))
+    } else {
+        None
+    };
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        for resource_root in [resource_dir.clone(), resource_dir.join("resources")] {
+            let candidate = resource_root.join(&packaged_executable);
+            if candidate.exists() {
+                return Some(DecoderRuntime {
+                    executable: candidate,
+                    library_dir: packaged_library_dir
+                        .as_ref()
+                        .map(|library_dir| resource_root.join(library_dir))
+                        .filter(|library_dir| library_dir.exists()),
+                });
+            }
+        }
+    }
+
     let relative_tool_path = Path::new(".tools")
         .join("wgrib2")
         .join("windows-v3.1.3")
         .join(executable_name);
+    let relative_resource_path = Path::new("src-tauri")
+        .join("resources")
+        .join(&packaged_executable);
 
     let mut candidates = Vec::new();
 
     if let Ok(current_dir) = env::current_dir() {
         candidates.push(current_dir.join(&relative_tool_path));
         candidates.push(current_dir.join("..").join(&relative_tool_path));
+        candidates.push(current_dir.join(&relative_resource_path));
+        candidates.push(current_dir.join("..").join(&relative_resource_path));
     }
 
     if let Ok(current_exe) = env::current_exe() {
@@ -206,13 +261,37 @@ fn find_wgrib2() -> Option<PathBuf> {
     candidates
         .into_iter()
         .find(|candidate| candidate.exists())
+        .map(|candidate| DecoderRuntime {
+            executable: candidate,
+            library_dir: None,
+        })
         .or_else(|| {
             env::var_os("PATH").and_then(|paths| {
                 env::split_paths(&paths)
                     .map(|path| path.join(executable_name))
                     .find(|candidate| candidate.exists())
+                    .map(|candidate| DecoderRuntime {
+                        executable: candidate,
+                        library_dir: None,
+                    })
             })
         })
+}
+
+fn add_decoder_library_path(command: &mut Command, library_dir: &Path) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let next_library_path = env::var_os("LD_LIBRARY_PATH")
+        .map(|current| {
+            let mut paths = vec![library_dir.to_path_buf()];
+            paths.extend(env::split_paths(&current));
+            env::join_paths(paths).unwrap_or_else(|_| library_dir.as_os_str().to_os_string())
+        })
+        .unwrap_or_else(|| library_dir.as_os_str().to_os_string());
+
+    command.env("LD_LIBRARY_PATH", next_library_path);
 }
 
 fn parse_grib_observed_at(bytes: &[u8]) -> Option<String> {

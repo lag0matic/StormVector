@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .tools/
+src-tauri/resources/wgrib2/
 
 # Editor directories and files
 .vscode/*

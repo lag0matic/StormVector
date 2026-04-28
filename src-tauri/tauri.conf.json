@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1420",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run prepare:decoders && npm run build"
   },
   "app": {
     "windows": [
@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "resources/wgrib2/**/*"
+    ],
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",

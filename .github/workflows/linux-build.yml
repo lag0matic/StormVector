@@ -11,6 +11,7 @@ on:
       - 'src-tauri/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'scripts/**'
       - 'vite.config.*'
       - 'tsconfig*.json'
       - 'README.md'
@@ -53,6 +54,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          init-shell: bash
+          generate-run-shell: false
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
