@@ -16,6 +16,7 @@ import {
 import type {
   AlertFeature,
   HazardSelection,
+  LightningActivityFeature,
   LocalStormReportFeature,
   NexradStormTrackFeature,
   SpcOutlookFeature,
@@ -37,6 +38,7 @@ type MapCanvasProps = {
   warningOpacity: number
   watchOpacity: number
   polygonOpacity: number
+  lightningOpacity: number
   selectedRegionalRadarTime: string | null
   selectedFutureRadarFrame: FutureRadarFrame | null
   selectedSatelliteTime: string | null
@@ -54,6 +56,8 @@ type MapCanvasProps = {
   }
   localStormReports: LocalStormReportFeature[]
   showSpotterReports: boolean
+  lightningActivity: LightningActivityFeature[]
+  showLightningActivity: boolean
   nexradStormTracks: NexradStormTrackFeature[]
   spcFeatures: SpcOutlookFeature[]
   winterFeatures: WinterOutlookFeature[]
@@ -128,6 +132,10 @@ const winterPolygonsFillLayerId = 'winter-outlook-polygons-fill'
 const winterPolygonsLineLayerId = 'winter-outlook-polygons-line'
 const localStormReportsSourceId = 'local-storm-reports'
 const localStormReportsLayerId = 'local-storm-reports-layer'
+const lightningActivitySourceId = 'lightning-activity'
+const lightningActivityLayerId = 'lightning-activity-layer'
+const lightningActivityHaloLayerId = 'lightning-activity-halo-layer'
+const lightningActivityIconPrefix = 'lightning-activity-icon-'
 const nexradStormTracksSourceId = 'nexrad-storm-tracks'
 const nexradStormTracksLineLayerId = 'nexrad-storm-tracks-line'
 const nexradStormTracksPointLayerId = 'nexrad-storm-tracks-point'
@@ -153,6 +161,7 @@ export const MapCanvas = memo(function MapCanvas({
   warningOpacity,
   watchOpacity,
   polygonOpacity,
+  lightningOpacity,
   selectedRegionalRadarTime,
   selectedFutureRadarFrame,
   selectedSatelliteTime,
@@ -165,6 +174,8 @@ export const MapCanvas = memo(function MapCanvas({
   alertTypeFilters,
   localStormReports,
   showSpotterReports,
+  lightningActivity,
+  showLightningActivity,
   nexradStormTracks,
   spcFeatures,
   winterFeatures = [],
@@ -1078,6 +1089,121 @@ export const MapCanvas = memo(function MapCanvas({
       return
     }
 
+    const collection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+      type: 'FeatureCollection',
+      features: lightningActivity.map((feature) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          observedAt: feature.observedAt,
+          intensity: feature.intensity,
+          approxStrikes: feature.approxStrikes,
+          icon: `${lightningActivityIconPrefix}${feature.intensity}`,
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: feature.coordinates,
+        },
+      })),
+    }
+
+    const applyLightningActivity = () => {
+      addLightningActivityIcons(map)
+
+      if (!hasSourceSafe(map, lightningActivitySourceId)) {
+        map.addSource(lightningActivitySourceId, {
+          type: 'geojson',
+          data: collection,
+        })
+
+        map.addLayer({
+          id: lightningActivityHaloLayerId,
+          type: 'circle',
+          source: lightningActivitySourceId,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['*', ['get', 'intensity'], 1.4],
+              9,
+              ['*', ['get', 'intensity'], 2.2],
+              12,
+              ['*', ['get', 'intensity'], 3.1],
+            ],
+            'circle-color': '#ffffff',
+            'circle-opacity': [
+              '*',
+              lightningOpacity,
+              ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.05, 4, 0.14],
+            ],
+            'circle-blur': 0.65,
+          },
+        })
+
+        map.addLayer({
+          id: lightningActivityLayerId,
+          type: 'symbol',
+          source: lightningActivitySourceId,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 9, 0.64, 12, 0.82],
+            'icon-allow-overlap': false,
+            'icon-ignore-placement': false,
+            'symbol-sort-key': ['get', 'intensity'],
+          },
+          paint: {
+            'icon-opacity': lightningOpacity,
+          },
+        })
+      } else {
+        const source = getSourceSafe<maplibregl.GeoJSONSource>(
+          map,
+          lightningActivitySourceId,
+        )
+        source?.setData(collection)
+      }
+
+      setLayerVisibility(
+        map,
+        lightningActivityHaloLayerId,
+        activeLayer === 'Radar' && showLightningActivity,
+      )
+      setLayerVisibility(
+        map,
+        lightningActivityLayerId,
+        activeLayer === 'Radar' && showLightningActivity,
+      )
+      setPaintPropertySafe(
+        map,
+        lightningActivityHaloLayerId,
+        'circle-opacity',
+        [
+          '*',
+          lightningOpacity,
+          ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.05, 4, 0.14],
+        ],
+      )
+      setPaintPropertySafe(
+        map,
+        lightningActivityLayerId,
+        'icon-opacity',
+        lightningOpacity,
+      )
+      nudgeMapRender(map)
+    }
+
+    return runWhenStyleLoaded(map, applyLightningActivity)
+  }, [activeLayer, lightningActivity, lightningOpacity, showLightningActivity])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map) {
+      return
+    }
+
     const syncStormTracks = () => {
       if (!map.isStyleLoaded()) {
         return
@@ -1250,7 +1376,12 @@ export const MapCanvas = memo(function MapCanvas({
     }
 
     return runWhenStyleLoaded(map, syncLayerVisibility)
-  }, [activeForecastOverlay, activeLayer, radarView, showSpotterReports])
+  }, [
+    activeForecastOverlay,
+    activeLayer,
+    radarView,
+    showSpotterReports,
+  ])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2540,6 +2671,57 @@ function addRadarSiteIcon(map: maplibregl.Map) {
 
   map.addImage(radarSiteIconId, context.getImageData(0, 0, 32, 32), {
     pixelRatio: 2,
+  })
+}
+
+function addLightningActivityIcons(map: maplibregl.Map) {
+  const colors = {
+    1: { fill: '#6f7680', stroke: '#101820' },
+    2: { fill: '#a7adb4', stroke: '#111827' },
+    3: { fill: '#d9dde2', stroke: '#172033' },
+    4: { fill: '#ffffff', stroke: '#1f2937' },
+  } as const
+
+  ;([1, 2, 3, 4] as const).forEach((intensity) => {
+    const imageId = `${lightningActivityIconPrefix}${intensity}`
+
+    if (map.hasImage(imageId)) {
+      return
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 48
+    canvas.height = 48
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      return
+    }
+
+    context.clearRect(0, 0, 48, 48)
+    context.lineJoin = 'round'
+    context.lineCap = 'round'
+    context.shadowColor = 'rgba(0, 0, 0, 0.45)'
+    context.shadowBlur = 5
+    context.shadowOffsetY = 2
+    context.strokeStyle = colors[intensity].stroke
+    context.lineWidth = 4
+    context.fillStyle = colors[intensity].fill
+
+    context.beginPath()
+    context.moveTo(27, 4)
+    context.lineTo(12, 27)
+    context.lineTo(23, 27)
+    context.lineTo(18, 44)
+    context.lineTo(36, 20)
+    context.lineTo(25, 20)
+    context.closePath()
+    context.stroke()
+    context.fill()
+
+    map.addImage(imageId, context.getImageData(0, 0, 48, 48), {
+      pixelRatio: 2,
+    })
   })
 }
 

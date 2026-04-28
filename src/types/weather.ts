@@ -162,6 +162,14 @@ export type NexradStormTrackFeature = {
   headingLabel: string
 }
 
+export type LightningActivityFeature = {
+  id: string
+  observedAt: string
+  coordinates: [number, number]
+  intensity: 1 | 2 | 3 | 4
+  approxStrikes: number
+}
+
 export type WeatherLoadState = {
   data: LocationWeather
   loading: boolean

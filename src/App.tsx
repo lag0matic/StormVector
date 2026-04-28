@@ -15,6 +15,7 @@ import { useFutureRadarTimeline } from './hooks/useFutureRadarTimeline'
 import { useLocalStormReports } from './hooks/useLocalStormReports'
 import { useLocalRadarTimeline } from './hooks/useLocalRadarTimeline'
 import { useLocationWeather } from './hooks/useLocationWeather'
+import { useLightningActivity } from './hooks/useLightningActivity'
 import { useNearestRadarSite } from './hooks/useNearestRadarSite'
 import { useNexradStormTracks } from './hooks/useNexradStormTracks'
 import { useRadarSites } from './hooks/useRadarSites'
@@ -207,6 +208,7 @@ const defaultLayerOpacity = {
   warnings: 30,
   watches: 14,
   polygons: 24,
+  lightning: 78,
 }
 const defaultAlertTypeFilters: AlertTypeFilters = {
   warning: true,
@@ -322,6 +324,7 @@ function App() {
   const [satellitePlaybackRunning, setSatellitePlaybackRunning] = useState(false)
   const [followLatestSatelliteFrame, setFollowLatestSatelliteFrame] = useState(true)
   const [showSpotterReports, setShowSpotterReports] = useState(false)
+  const [showLightningActivity, setShowLightningActivity] = useState(false)
   const [playbackWindowMinutes, setPlaybackWindowMinutes] = useState<30 | 60 | 120>(30)
   const [playbackSpeed, setPlaybackSpeed] =
     useState<(typeof playbackSpeeds)[number]['id']>('normal')
@@ -396,6 +399,12 @@ function App() {
     loading: localStormReportsLoading,
   } = useLocalStormReports(showSpotterReports)
   const {
+    features: lightningActivity,
+    observedAt: lightningActivityObservedAt,
+    loading: lightningActivityLoading,
+    error: lightningActivityError,
+  } = useLightningActivity(activeLayer === 'Radar' && showLightningActivity)
+  const {
     features: spcFeatures,
   } = useSpcOutlookPolygons(
     selectedSpcDay,
@@ -428,7 +437,6 @@ function App() {
     loading: satelliteTimelineLoading,
     error: satelliteTimelineError,
   } = useSatelliteTimeline(satelliteLayer)
-
   const activeRadarProducts = useMemo(
     () =>
       radarView === 'regional'
@@ -700,6 +708,12 @@ function App() {
   )
   const statusPrimary = useMemo(() => {
     if (activeLayer === 'Radar') {
+      if (showLightningActivity) {
+        return lightningActivityLoading
+          ? 'Loading lightning activity...'
+          : `${lightningActivity.length} lightning activity areas`
+      }
+
       if (radarView === 'regional') {
         return selectedRegionalRadarTime
           ? formatFrameTimestamp(selectedRegionalRadarTime)
@@ -747,6 +761,8 @@ function App() {
     activeLayer,
     futureRadarTimelineError,
     futureRadarTimelineLoading,
+    lightningActivity.length,
+    lightningActivityLoading,
     localRadarTimelineError,
     localRadarTimelineLoading,
     radarView,
@@ -758,6 +774,7 @@ function App() {
     selectedFutureRadarFrame,
     selectedRegionalRadarTime,
     selectedSatelliteTime,
+    showLightningActivity,
     spcFeatures.length,
     visibleAlertFeatures.length,
     winterFeatures.length,
@@ -786,6 +803,14 @@ function App() {
           : `${recentLocalStormReports.length} recent reports`
       }
 
+      if (showLightningActivity) {
+        return lightningActivityError
+          ? 'Lightning activity unavailable'
+          : lightningActivityObservedAt
+            ? `Lightning observed ${formatStormTrackObservedAt(lightningActivityObservedAt)}`
+            : `${lightningActivity.length} activity areas`
+      }
+
       return `${visibleAlertFeatures.length} alerts visible`
     }
 
@@ -806,6 +831,9 @@ function App() {
     activeForecastOverlay,
     activeLayer,
     activeRadarSite,
+    lightningActivity.length,
+    lightningActivityError,
+    lightningActivityObservedAt,
     localStormReportsLoading,
     nearestRadarError,
     nearestRadarLoading,
@@ -817,6 +845,7 @@ function App() {
     selectedWinterDay,
     selectedWinterProduct,
     showSpotterReports,
+    showLightningActivity,
     visibleAlertFeatures.length,
   ])
   const stackedHazardAlerts = useMemo(
@@ -1251,6 +1280,10 @@ function App() {
     (value: number) => commitOpacityValue('polygons', value),
     [commitOpacityValue],
   )
+  const commitLightningOpacity = useCallback(
+    (value: number) => commitOpacityValue('lightning', value),
+    [commitOpacityValue],
+  )
   const handleHazardSelect = useCallback((selection: HazardSelection) => {
     setSelectedHazard(selection)
     setSidePanelTab('hazards')
@@ -1651,6 +1684,13 @@ function App() {
                         onCommit={commitPolygonOpacity}
                       />
                     </div>
+                    <div className="slider-group">
+                      <OpacitySlider
+                        label="Lightning Activity"
+                        value={layerOpacity.lightning}
+                        onCommit={commitLightningOpacity}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -1691,6 +1731,7 @@ function App() {
                 warningOpacity={layerOpacity.warnings / 100}
                 watchOpacity={layerOpacity.watches / 100}
                 polygonOpacity={layerOpacity.polygons / 100}
+                lightningOpacity={layerOpacity.lightning / 100}
                 selectedRegionalRadarTime={selectedRegionalRadarTime}
                 selectedFutureRadarFrame={selectedFutureRadarFrame}
                 selectedSatelliteTime={selectedSatelliteTime}
@@ -1703,6 +1744,8 @@ function App() {
                 alertTypeFilters={alertTypeFilters}
                 localStormReports={recentLocalStormReports}
                 showSpotterReports={showSpotterReports}
+                lightningActivity={lightningActivity}
+                showLightningActivity={showLightningActivity}
                 nexradStormTracks={nexradStormTracks}
                 spcFeatures={spcFeatures}
                 winterFeatures={winterFeatures}
@@ -1787,6 +1830,18 @@ function App() {
                       onClick={() => setShowSpotterReports((current) => !current)}
                     >
                       Reports{recentLocalStormReports.length > 0 ? ` (${recentLocalStormReports.length})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      className={showLightningActivity ? 'chip active' : 'chip'}
+                      onClick={() => setShowLightningActivity((current) => !current)}
+                    >
+                      Lightning
+                      {showLightningActivity && lightningActivityLoading
+                        ? ' ...'
+                        : lightningActivity.length > 0
+                          ? ` (${lightningActivity.length})`
+                          : ''}
                     </button>
                     {radarView === 'local' ? (
                       <span
@@ -2592,6 +2647,7 @@ function normalizeLayerOpacity(value: typeof defaultLayerOpacity) {
     warnings: clampPercentage(value.warnings, defaultLayerOpacity.warnings),
     watches: clampPercentage(value.watches, defaultLayerOpacity.watches),
     polygons: clampPercentage(value.polygons, defaultLayerOpacity.polygons),
+    lightning: clampPercentage(value.lightning, defaultLayerOpacity.lightning),
   }
 }
 
