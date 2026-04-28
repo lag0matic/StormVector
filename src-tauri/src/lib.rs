@@ -51,6 +51,7 @@ struct LightningBucket {
 struct DecoderRuntime {
     executable: PathBuf,
     library_dir: Option<PathBuf>,
+    terminfo_dir: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -158,6 +159,9 @@ async fn fetch_lightning_activity(
     if let Some(library_dir) = decoder.library_dir {
         add_decoder_library_path(&mut command, &library_dir);
     }
+    if let Some(terminfo_dir) = decoder.terminfo_dir {
+        command.env("TERMINFO", terminfo_dir);
+    }
 
     let output = command
         .output()
@@ -185,6 +189,7 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
             return Some(DecoderRuntime {
                 executable: candidate,
                 library_dir: None,
+                terminfo_dir: None,
             });
         }
     }
@@ -212,6 +217,16 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
     } else {
         None
     };
+    let packaged_terminfo_dir = if cfg!(target_os = "linux") {
+        Some(
+            Path::new("wgrib2")
+                .join(platform_dir)
+                .join("share")
+                .join("terminfo"),
+        )
+    } else {
+        None
+    };
 
     if let Ok(resource_dir) = app.path().resource_dir() {
         for resource_root in [resource_dir.clone(), resource_dir.join("resources")] {
@@ -223,6 +238,10 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
                         .as_ref()
                         .map(|library_dir| resource_root.join(library_dir))
                         .filter(|library_dir| library_dir.exists()),
+                    terminfo_dir: packaged_terminfo_dir
+                        .as_ref()
+                        .map(|terminfo_dir| resource_root.join(terminfo_dir))
+                        .filter(|terminfo_dir| terminfo_dir.exists()),
                 });
             }
         }
@@ -264,6 +283,7 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
         .map(|candidate| DecoderRuntime {
             executable: candidate,
             library_dir: None,
+            terminfo_dir: None,
         })
         .or_else(|| {
             env::var_os("PATH").and_then(|paths| {
@@ -273,6 +293,7 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
                     .map(|candidate| DecoderRuntime {
                         executable: candidate,
                         library_dir: None,
+                        terminfo_dir: None,
                     })
             })
         })

@@ -62,14 +62,20 @@ async function prepareWindowsDecoder() {
 async function prepareLinuxDecoder() {
   const resourceBin = join(linuxResourceDir, 'bin', 'wgrib2')
   const resourceLib = join(linuxResourceDir, 'lib')
+  const resourceTerminfo = join(linuxResourceDir, 'share', 'terminfo')
 
-  if ((await exists(resourceBin)) && (await exists(resourceLib))) {
+  if (
+    (await exists(resourceBin)) &&
+    (await exists(resourceLib)) &&
+    (await exists(resourceTerminfo))
+  ) {
     console.log(`Prepared Linux wgrib2 decoder at ${linuxResourceDir}`)
     return
   }
 
   const envBin = join(linuxEnvDir, 'bin', 'wgrib2')
   const envLib = join(linuxEnvDir, 'lib')
+  const envTerminfo = join(linuxEnvDir, 'share', 'terminfo')
 
   if (!(await exists(envBin))) {
     const micromamba = findCommand('micromamba')
@@ -98,6 +104,15 @@ async function prepareLinuxDecoder() {
     force: true,
     verbatimSymlinks: true,
   })
+
+  if (await exists(envTerminfo)) {
+    await mkdir(dirname(resourceTerminfo), { recursive: true })
+    await cp(envTerminfo, resourceTerminfo, {
+      recursive: true,
+      force: true,
+      verbatimSymlinks: true,
+    })
+  }
 
   console.log(`Prepared Linux wgrib2 decoder at ${linuxResourceDir}`)
 }
