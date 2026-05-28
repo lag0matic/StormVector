@@ -341,6 +341,8 @@ function App() {
   const [selectedFutureRadarFrameIndex, setSelectedFutureRadarFrameIndex] =
     useState(0)
   const [futurePlaybackRunning, setFuturePlaybackRunning] = useState(false)
+  const [renderedFutureRadarFrameId, setRenderedFutureRadarFrameId] =
+    useState<string | null>(null)
   const [searchText, setSearchText] = useState(
     homeLocation?.label ?? defaultLocationLabel,
   )
@@ -451,6 +453,7 @@ function App() {
       playbackSpeeds.find((speed) => speed.id === playbackSpeed)?.intervalMs ?? 650,
     [playbackSpeed],
   )
+  const futurePlaybackIntervalMs = playbackIntervalMs
   const activeLocalRadarFrames = useMemo(
     () => filterFramesToWindow(localRadarFrames, playbackWindowMinutes),
     [localRadarFrames, playbackWindowMinutes],
@@ -464,6 +467,27 @@ function App() {
     [satelliteFrames, playbackWindowMinutes],
   )
   const activeFutureRadarFrames = futureRadarFrames
+  const handleFutureRadarFrameError = useCallback((frameId: string) => {
+    if (!futurePlaybackRunning || activeFutureRadarFrames.length < 2) {
+      return
+    }
+
+    const failedIndex = activeFutureRadarFrames.findIndex(
+      (frame) => frame.id === frameId,
+    )
+
+    if (failedIndex < 0 || failedIndex !== selectedFutureRadarFrameIndex) {
+      return
+    }
+
+    setSelectedFutureRadarFrameIndex(
+      failedIndex + 1 >= activeFutureRadarFrames.length ? 0 : failedIndex + 1,
+    )
+  }, [
+    activeFutureRadarFrames,
+    futurePlaybackRunning,
+    selectedFutureRadarFrameIndex,
+  ])
   const latestRegionalRadarFrame = useMemo(
     () => activeRegionalRadarFrames[activeRegionalRadarFrames.length - 1] ?? null,
     [activeRegionalRadarFrames],
@@ -487,6 +511,15 @@ function App() {
           ]
         : null,
     [activeFutureRadarFrames, radarView, selectedFutureRadarFrameIndex],
+  )
+  const renderedFutureRadarFrame = useMemo(
+    () =>
+      radarView === 'future' && renderedFutureRadarFrameId
+        ? activeFutureRadarFrames.find(
+            (frame) => frame.id === renderedFutureRadarFrameId,
+          ) ?? null
+        : null,
+    [activeFutureRadarFrames, radarView, renderedFutureRadarFrameId],
   )
   const selectedRegionalRadarTime = useMemo(
     () =>
@@ -555,10 +588,18 @@ function App() {
     }
 
     if (radarView === 'future' && activeFutureRadarFrames.length > 0) {
-      return Math.min(
-        selectedFutureRadarFrameIndex,
-        activeFutureRadarFrames.length - 1,
-      )
+      const renderedIndex = renderedFutureRadarFrame
+        ? activeFutureRadarFrames.findIndex(
+            (frame) => frame.id === renderedFutureRadarFrame.id,
+          )
+        : -1
+
+      return renderedIndex >= 0
+        ? renderedIndex
+        : Math.min(
+            selectedFutureRadarFrameIndex,
+            activeFutureRadarFrames.length - 1,
+          )
     }
 
     return 0
@@ -569,6 +610,7 @@ function App() {
     activeRegionalRadarFrames,
     activeSatelliteFrames,
     radarView,
+    renderedFutureRadarFrame,
     selectedFutureRadarFrameIndex,
     selectedLocalRadarFrameIndex,
     selectedRegionalRadarFrameIndex,
@@ -577,9 +619,12 @@ function App() {
   const activePlaybackLabel = useMemo(
     () => {
       if (activeLayer === 'Radar' && radarView === 'future') {
-        return selectedFutureRadarFrame
-          ? `${selectedFutureRadarFrame.label} ${formatFrameLabel(
-              selectedFutureRadarFrame.validTime,
+        const visibleFutureRadarFrame =
+          renderedFutureRadarFrame ?? selectedFutureRadarFrame
+
+        return visibleFutureRadarFrame
+          ? `${visibleFutureRadarFrame.label} ${formatFrameLabel(
+              visibleFutureRadarFrame.validTime,
             )}`
           : 'Future radar'
       }
@@ -595,6 +640,7 @@ function App() {
       activePlaybackIndex,
       currentTimelineFrames,
       radarView,
+      renderedFutureRadarFrame,
       selectedFutureRadarFrame,
     ],
   )
@@ -723,10 +769,13 @@ function App() {
       }
 
       if (radarView === 'future') {
-        return selectedFutureRadarFrame
+        const visibleFutureRadarFrame =
+          renderedFutureRadarFrame ?? selectedFutureRadarFrame
+
+        return visibleFutureRadarFrame
           ? `${formatFrameTimestamp(
-              selectedFutureRadarFrame.validTime,
-            )} valid (${selectedFutureRadarFrame.label})`
+              visibleFutureRadarFrame.validTime,
+            )} valid (${visibleFutureRadarFrame.label})`
           : futureRadarTimelineLoading
             ? 'Loading HRRR guidance...'
             : futureRadarTimelineError ?? 'Future radar unavailable'
@@ -771,6 +820,7 @@ function App() {
     satelliteTimelineError,
     satelliteTimelineLoading,
     selectedLocalRadarTime,
+    renderedFutureRadarFrame,
     selectedFutureRadarFrame,
     selectedRegionalRadarTime,
     selectedSatelliteTime,
@@ -790,9 +840,12 @@ function App() {
       }
 
       if (radarView === 'future') {
-        return selectedFutureRadarFrame
+        const visibleFutureRadarFrame =
+          renderedFutureRadarFrame ?? selectedFutureRadarFrame
+
+        return visibleFutureRadarFrame
           ? `HRRR run ${formatUtcRunHour(
-              selectedFutureRadarFrame.runTime,
+              visibleFutureRadarFrame.runTime,
             )}; model guidance, not observed radar`
           : 'HRRR simulated reflectivity'
       }
@@ -839,6 +892,7 @@ function App() {
     nearestRadarLoading,
     radarView,
     recentLocalStormReports.length,
+    renderedFutureRadarFrame,
     selectedFutureRadarFrame,
     selectedRadarSiteId,
     selectedSpcDay,
@@ -1156,24 +1210,28 @@ function App() {
     if (
       radarView !== 'future' ||
       !futurePlaybackRunning ||
-      activeFutureRadarFrames.length < 2
+      activeFutureRadarFrames.length < 2 ||
+      !selectedFutureRadarFrame ||
+      renderedFutureRadarFrameId !== selectedFutureRadarFrame.id
     ) {
       return
     }
 
-    const interval = window.setInterval(() => {
+    const timeout = window.setTimeout(() => {
       setSelectedFutureRadarFrameIndex((current) => {
         const next = current + 1
         return next >= activeFutureRadarFrames.length ? 0 : next
       })
-    }, playbackIntervalMs)
+    }, futurePlaybackIntervalMs)
 
-    return () => window.clearInterval(interval)
+    return () => window.clearTimeout(timeout)
   }, [
     activeFutureRadarFrames.length,
+    futurePlaybackIntervalMs,
     futurePlaybackRunning,
-    playbackIntervalMs,
     radarView,
+    renderedFutureRadarFrameId,
+    selectedFutureRadarFrame,
   ])
 
   useEffect(() => {
@@ -1761,6 +1819,8 @@ function App() {
                 onStormTrackEndSet={setStormTrackEnd}
                 onMapClick={handleMapClick}
                 onRadarSiteSelect={handleRadarSiteSelect}
+                onFutureRadarFrameLoad={setRenderedFutureRadarFrameId}
+                onFutureRadarFrameError={handleFutureRadarFrameError}
               />
             </Suspense>
 

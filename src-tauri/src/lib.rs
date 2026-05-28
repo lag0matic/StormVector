@@ -1,15 +1,23 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, fs};
 
+use reqwest::header::RANGE;
 use rodio::source::SineWave;
 use rodio::{OutputStream, Sink, Source};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 const NEXRAD_LEVEL3_HOST: &str = "https://unidata-nexrad-level3.s3.amazonaws.com/";
+const HRRR_S3_HOST: &str = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/";
 const LIGHTNING_DENSITY_URL: &str =
     "https://ftp.opc.ncep.noaa.gov/grids/operational/lightning_density/ltng_15/latest.15.grb2";
 const LIGHTNING_GRID_WIDTH: usize = 3476;
@@ -21,8 +29,11 @@ const LIGHTNING_LON_END: f64 = 360.0;
 const LIGHTNING_CELL_AREA_M2: f64 = 64_000_000.0;
 const LIGHTNING_WINDOW_SECONDS: f64 = 15.0 * 60.0;
 const MAX_LIGHTNING_POINTS: usize = 450;
+const WINDOWS_CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(target_os = "linux")]
 const WEBVIEW_ZOOM_LEVEL: f64 = 1.0;
+
+static DECODER_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,6 +63,20 @@ struct DecoderRuntime {
     executable: PathBuf,
     library_dir: Option<PathBuf>,
     terminfo_dir: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FutureRadarRenderRequest {
+    render_url: String,
+    source_url: String,
+    band: u32,
+    west: f64,
+    south: f64,
+    east: f64,
+    north: f64,
+    width: u32,
+    height: u32,
 }
 
 #[tauri::command]
@@ -117,6 +142,361 @@ async fn fetch_nexrad_level3(url: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
+async fn check_hrrr_source_available(url: String) -> Result<bool, String> {
+    if !url.starts_with(HRRR_S3_HOST) {
+        return Err("HRRR request host is not allowed.".to_string());
+    }
+
+    let response = reqwest::Client::new()
+        .get(&url)
+        .header(RANGE, "bytes=0-15")
+        .send()
+        .await
+        .map_err(|error| format!("HRRR availability request failed: {error}"))?;
+
+    Ok(response.status().is_success())
+}
+
+#[tauri::command]
+async fn fetch_future_radar_render(
+    app: tauri::AppHandle,
+    request: FutureRadarRenderRequest,
+) -> Result<Vec<u8>, String> {
+    if !request.render_url.starts_with("https://raster.eoapi.dev/external/bbox/")
+        || !request.source_url.starts_with(HRRR_S3_HOST)
+    {
+        return Err("Future radar render host is not allowed.".to_string());
+    }
+
+    let cache_dir = env::temp_dir().join("stormvector-future-radar-cache");
+    fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Future radar cache directory failed: {error}"))?;
+
+    let cache_path = cache_dir.join(format!("{}.png", hash_cache_key(&request.render_url)));
+
+    if cache_path.exists() {
+        let started_at = Instant::now();
+        let bytes = fs::read(&cache_path)
+            .map_err(|error| format!("Future radar cache read failed: {error}"))?;
+        log::info!(
+            "Future radar cache hit: band {} {}x{} in {} ms",
+            request.band,
+            request.width,
+            request.height,
+            started_at.elapsed().as_millis()
+        );
+
+        return Ok(bytes);
+    }
+
+    let started_at = Instant::now();
+    let bytes = match render_future_radar_locally(&app, &request).await {
+        Ok(bytes) => {
+            log::info!(
+                "Future radar local render: band {} {}x{} in {} ms",
+                request.band,
+                request.width,
+                request.height,
+                started_at.elapsed().as_millis()
+            );
+            bytes
+        }
+        Err(local_error) => {
+            log::warn!("Future radar local render failed: {local_error}");
+            let bytes = fetch_future_radar_render_remote(&request.render_url).await?;
+            log::info!(
+                "Future radar remote render: band {} {}x{} in {} ms",
+                request.band,
+                request.width,
+                request.height,
+                started_at.elapsed().as_millis()
+            );
+            bytes
+        }
+    };
+
+    fs::write(&cache_path, &bytes)
+        .map_err(|error| format!("Future radar cache write failed: {error}"))?;
+
+    trim_future_radar_cache(&cache_dir);
+
+    Ok(bytes)
+}
+
+async fn fetch_future_radar_render_remote(url: &str) -> Result<Vec<u8>, String> {
+    let response = reqwest::get(url)
+        .await
+        .map_err(|error| format!("Future radar render request failed: {error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Future radar render request failed: {}",
+            response.status()
+        ));
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| format!("Future radar render response read failed: {error}"))
+}
+
+async fn render_future_radar_locally(
+    app: &tauri::AppHandle,
+    request: &FutureRadarRenderRequest,
+) -> Result<Vec<u8>, String> {
+    let width = request.width.clamp(256, 1800);
+    let height = request.height.clamp(256, 1400);
+    let dlon = (request.east - request.west) / (width.saturating_sub(1)) as f64;
+    let dlat = (request.north - request.south) / (height.saturating_sub(1)) as f64;
+
+    if !dlon.is_finite() || !dlat.is_finite() || dlon <= 0.0 || dlat <= 0.0 {
+        return Err("Future radar viewport is invalid.".to_string());
+    }
+
+    let message_bytes = fetch_hrrr_message(&request.source_url, request.band).await?;
+    let work_dir = env::temp_dir()
+        .join("stormvector-future-radar-work")
+        .join(hash_cache_key(&request.render_url));
+    fs::create_dir_all(&work_dir)
+        .map_err(|error| format!("Future radar work directory failed: {error}"))?;
+
+    let source_path = work_dir.join("source.grib2");
+    let regrid_path = work_dir.join("regrid.grib2");
+    let bin_path = work_dir.join("values.f32");
+
+    fs::write(&source_path, message_bytes)
+        .map_err(|error| format!("Future radar source write failed: {error}"))?;
+
+    let decoder = find_wgrib2(app)
+        .ok_or_else(|| "wgrib2 decoder was not found locally or on PATH.".to_string())?;
+    let _decoder_lock = DECODER_LOCK
+        .lock()
+        .map_err(|error| format!("Future radar decoder lock failed: {error}"))?;
+    let mut regrid_command = Command::new(&decoder.executable);
+    hide_decoder_window(&mut regrid_command);
+    regrid_command
+        .arg(&source_path)
+        .arg("-new_grid_winds")
+        .arg("earth")
+        .arg("-new_grid_interpolation")
+        .arg("bilinear")
+        .arg("-new_grid")
+        .arg("latlon")
+        .arg(format!("{}:{}:{}", request.west, width, dlon))
+        .arg(format!("{}:{}:{}", request.south, height, dlat))
+        .arg(&regrid_path)
+        .env("OMP_NUM_THREADS", "2")
+        .env("OMP_WAIT_POLICY", "PASSIVE");
+
+    if let Some(library_dir) = decoder.library_dir.as_ref() {
+        add_decoder_library_path(&mut regrid_command, library_dir);
+    }
+    if let Some(terminfo_dir) = decoder.terminfo_dir.as_ref() {
+        regrid_command.env("TERMINFO", terminfo_dir);
+    }
+
+    let output = regrid_command
+        .output()
+        .map_err(|error| format!("Future radar regrid failed to start: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Future radar regrid failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let mut bin_command = Command::new(&decoder.executable);
+    hide_decoder_window(&mut bin_command);
+    bin_command
+        .arg(&regrid_path)
+        .arg("-no_header")
+        .arg("-order")
+        .arg("we:sn")
+        .arg("-bin")
+        .arg(&bin_path)
+        .env("OMP_NUM_THREADS", "2")
+        .env("OMP_WAIT_POLICY", "PASSIVE");
+
+    if let Some(library_dir) = decoder.library_dir.as_ref() {
+        add_decoder_library_path(&mut bin_command, library_dir);
+    }
+    if let Some(terminfo_dir) = decoder.terminfo_dir.as_ref() {
+        bin_command.env("TERMINFO", terminfo_dir);
+    }
+
+    let output = bin_command
+        .output()
+        .map_err(|error| format!("Future radar decode failed to start: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Future radar decode failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let decoded = fs::read(&bin_path)
+        .map_err(|error| format!("Future radar decoded grid read failed: {error}"))?;
+    let _ = fs::remove_dir_all(&work_dir);
+
+    encode_reflectivity_png(&decoded, width, height)
+}
+
+async fn fetch_hrrr_message(source_url: &str, band: u32) -> Result<Vec<u8>, String> {
+    let idx_url = format!("{source_url}.idx");
+    let idx_response = reqwest::get(&idx_url)
+        .await
+        .map_err(|error| format!("HRRR index request failed: {error}"))?;
+
+    if !idx_response.status().is_success() {
+        return Err(format!("HRRR index request failed: {}", idx_response.status()));
+    }
+
+    let idx_text = idx_response
+        .text()
+        .await
+        .map_err(|error| format!("HRRR index read failed: {error}"))?;
+    let lines: Vec<&str> = idx_text.lines().collect();
+    let line_index = lines
+        .iter()
+        .position(|line| line.starts_with(&format!("{band}:")))
+        .ok_or_else(|| format!("HRRR band {band} was not found in index."))?;
+    let start = parse_idx_offset(lines[line_index])?;
+    let end = lines
+        .get(line_index + 1)
+        .map(|line| parse_idx_offset(line).map(|offset| offset.saturating_sub(1)))
+        .transpose()?;
+    let range = match end {
+        Some(end) => format!("bytes={start}-{end}"),
+        None => format!("bytes={start}-"),
+    };
+    let response = reqwest::Client::new()
+        .get(source_url)
+        .header(RANGE, range)
+        .send()
+        .await
+        .map_err(|error| format!("HRRR message request failed: {error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HRRR message request failed: {}", response.status()));
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| format!("HRRR message read failed: {error}"))
+}
+
+fn parse_idx_offset(line: &str) -> Result<u64, String> {
+    line.split(':')
+        .nth(1)
+        .ok_or_else(|| "HRRR index line was malformed.".to_string())?
+        .parse::<u64>()
+        .map_err(|error| format!("HRRR index offset was invalid: {error}"))
+}
+
+fn encode_reflectivity_png(decoded: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let expected_len = width as usize * height as usize * 4;
+
+    if decoded.len() < expected_len {
+        return Err("Future radar decoded grid was shorter than expected.".to_string());
+    }
+
+    let mut rgba = vec![0_u8; width as usize * height as usize * 4];
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+
+    for row in 0..height_usize {
+        let target_row = height_usize - 1 - row;
+
+        for col in 0..width_usize {
+            let source_index = (row * width_usize + col) * 4;
+            let target_index = (target_row * width_usize + col) * 4;
+            let value = f32::from_le_bytes([
+                decoded[source_index],
+                decoded[source_index + 1],
+                decoded[source_index + 2],
+                decoded[source_index + 3],
+            ]);
+            let color = reflectivity_color(value);
+
+            rgba[target_index..target_index + 4].copy_from_slice(&color);
+        }
+    }
+
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| format!("Future radar PNG header failed: {error}"))?;
+    writer
+        .write_image_data(&rgba)
+        .map_err(|error| format!("Future radar PNG encode failed: {error}"))?;
+    drop(writer);
+
+    Ok(bytes)
+}
+
+fn reflectivity_color(value: f32) -> [u8; 4] {
+    if !value.is_finite() || value < 5.0 || value > 200.0 {
+        return [0, 0, 0, 0];
+    }
+
+    match value {
+        value if value < 10.0 => [0, 236, 236, 255],
+        value if value < 15.0 => [1, 160, 246, 255],
+        value if value < 20.0 => [0, 0, 246, 255],
+        value if value < 25.0 => [0, 255, 0, 255],
+        value if value < 30.0 => [0, 200, 0, 255],
+        value if value < 35.0 => [0, 144, 0, 255],
+        value if value < 40.0 => [255, 255, 0, 255],
+        value if value < 45.0 => [231, 192, 0, 255],
+        value if value < 50.0 => [255, 144, 0, 255],
+        value if value < 55.0 => [255, 0, 0, 255],
+        value if value < 60.0 => [214, 0, 0, 255],
+        value if value < 65.0 => [192, 0, 0, 255],
+        value if value < 70.0 => [255, 0, 255, 255],
+        _ => [153, 85, 201, 255],
+    }
+}
+
+fn hash_cache_key(value: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn trim_future_radar_cache(cache_dir: &Path) {
+    let Ok(entries) = fs::read_dir(cache_dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let metadata = entry.metadata().ok()?;
+            let modified = metadata.modified().ok()?;
+            Some((entry.path(), modified))
+        })
+        .collect();
+
+    if entries.len() <= 240 {
+        return;
+    }
+
+    entries.sort_by_key(|(_, modified)| *modified);
+
+    for (path, _) in entries.into_iter().take(40) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[tauri::command]
 async fn fetch_lightning_activity(
     app: tauri::AppHandle,
 ) -> Result<LightningActivityResponse, String> {
@@ -145,7 +525,11 @@ async fn fetch_lightning_activity(
 
     let decoder = find_wgrib2(&app)
         .ok_or_else(|| "wgrib2 decoder was not found locally or on PATH.".to_string())?;
+    let _decoder_lock = DECODER_LOCK
+        .lock()
+        .map_err(|error| format!("Lightning decoder lock failed: {error}"))?;
     let mut command = Command::new(&decoder.executable);
+    hide_decoder_window(&mut command);
     command
         .arg(&grib_path)
         .arg("-no_header")
@@ -313,6 +697,14 @@ fn add_decoder_library_path(command: &mut Command, library_dir: &Path) {
         .unwrap_or_else(|| library_dir.as_os_str().to_os_string());
 
     command.env("LD_LIBRARY_PATH", next_library_path);
+}
+
+fn hide_decoder_window(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    command.creation_flags(WINDOWS_CREATE_NO_WINDOW);
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = command;
 }
 
 fn parse_grib_observed_at(bytes: &[u8]) -> Option<String> {
@@ -522,6 +914,8 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             fetch_nexrad_level3,
+            check_hrrr_source_available,
+            fetch_future_radar_render,
             fetch_lightning_activity,
             play_alert_tone,
         ])

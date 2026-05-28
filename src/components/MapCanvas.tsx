@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import maplibregl from 'maplibre-gl'
 import {
   findNearestRadarSiteFromList,
@@ -6,7 +7,7 @@ import {
   type RadarSite,
 } from '../services/radar'
 import {
-  getFutureRadarImageCoordinates,
+  buildFutureRadarImageUrl,
   type FutureRadarFrame,
 } from '../services/futureRadar'
 import {
@@ -73,6 +74,8 @@ type MapCanvasProps = {
   onHazardSelect: (selection: HazardSelection) => void
   onStormTrackOriginSet: (coordinates: [number, number]) => void
   onStormTrackEndSet: (coordinates: [number, number]) => void
+  onFutureRadarFrameLoad: (frameId: string) => void
+  onFutureRadarFrameError: (frameId: string) => void
 }
 
 type ProjectedTrackLabel = {
@@ -97,6 +100,7 @@ type ViewportSnapshot = {
 
 type BufferedRasterFrame = {
   url: string
+  frameKey: string
   viewport: ViewportSnapshot
 }
 
@@ -191,6 +195,8 @@ export const MapCanvas = memo(function MapCanvas({
   onHazardSelect,
   onStormTrackOriginSet,
   onStormTrackEndSet,
+  onFutureRadarFrameLoad,
+  onFutureRadarFrameError,
 }: MapCanvasProps) {
   const [requestViewport, setRequestViewport] = useState<ViewportSnapshot | null>(
     null,
@@ -2200,6 +2206,55 @@ export const MapCanvas = memo(function MapCanvas({
     selectedLocalRadarTime,
   ])
 
+  const satelliteOverlayUrl =
+    requestViewport && activeLayer === 'Satellite'
+      ? buildSatelliteImageUrl(satelliteLayer, {
+          west: requestViewport.west,
+          south: requestViewport.south,
+          east: requestViewport.east,
+          north: requestViewport.north,
+          width: requestViewport.width,
+          height: requestViewport.height,
+          time: selectedSatelliteTime,
+        })
+      : null
+  const futureRadarOverlayUrl =
+    requestViewport &&
+    activeLayer === 'Radar' &&
+    radarView === 'future' &&
+    selectedFutureRadarFrame
+      ? buildFutureRadarImageUrl({
+          sourceUrl: selectedFutureRadarFrame.sourceUrl,
+          band: selectedFutureRadarFrame.renderBand,
+          west: requestViewport.west,
+          south: requestViewport.south,
+          east: requestViewport.east,
+          north: requestViewport.north,
+          width: requestViewport.width,
+          height: requestViewport.height,
+        })
+      : null
+  const cachedFutureRadarOverlayUrl = useCachedFutureRadarRenderUrl(
+    futureRadarOverlayUrl,
+    selectedFutureRadarFrame,
+    requestViewport,
+  )
+  const {
+    activeFrame: activeSatelliteFrame,
+    pendingFrame: pendingSatelliteFrame,
+    previousFrame: previousSatelliteFrame,
+    promotePendingFrame: promotePendingSatelliteFrame,
+  } = useBufferedRasterFrame(satelliteOverlayUrl, requestViewport)
+  const {
+    activeFrame: activeFutureRadarFrame,
+    pendingFrame: pendingFutureRadarFrame,
+    promotePendingFrame: promotePendingFutureRadarFrame,
+  } = useBufferedRasterFrame(
+    cachedFutureRadarOverlayUrl,
+    requestViewport,
+    selectedFutureRadarFrame?.id,
+  )
+
   useEffect(() => {
     const map = mapRef.current
 
@@ -2210,21 +2265,23 @@ export const MapCanvas = memo(function MapCanvas({
     const isVisible =
       activeLayer === 'Radar' &&
       radarView === 'future' &&
-      selectedFutureRadarFrame
-    const sourceSignature = selectedFutureRadarFrame?.imageUrl ?? ''
+      Boolean(activeFutureRadarFrame)
+    const sourceSignature = activeFutureRadarFrame
+      ? `${activeFutureRadarFrame.url}:${activeFutureRadarFrame.viewport.west}:${activeFutureRadarFrame.viewport.south}:${activeFutureRadarFrame.viewport.east}:${activeFutureRadarFrame.viewport.north}`
+      : ''
 
     const applyFutureRadarLayer = () => {
-      if (!isVisible || !selectedFutureRadarFrame) {
+      if (!isVisible || !activeFutureRadarFrame) {
         setLayerVisibility(map, futureRadarLayerId, false)
         return
       }
 
-      const coordinates = getFutureRadarImageCoordinates()
+      const coordinates = getImageCoordinatesFromViewport(activeFutureRadarFrame.viewport)
 
       if (!hasSourceSafe(map, futureRadarSourceId)) {
         map.addSource(futureRadarSourceId, {
           type: 'image',
-          url: selectedFutureRadarFrame.imageUrl,
+          url: activeFutureRadarFrame.url,
           coordinates,
         })
       } else if (futureRadarSignatureRef.current !== sourceSignature) {
@@ -2232,12 +2289,12 @@ export const MapCanvas = memo(function MapCanvas({
           maplibregl.ImageSource & {
             updateImage?: (image: {
               url: string
-              coordinates: ReturnType<typeof getFutureRadarImageCoordinates>
+              coordinates: ReturnType<typeof getImageCoordinatesFromViewport>
             }) => void
           }
         >(map, futureRadarSourceId)
         source?.updateImage?.({
-          url: selectedFutureRadarFrame.imageUrl,
+          url: activeFutureRadarFrame.url,
           coordinates,
         })
       }
@@ -2272,26 +2329,31 @@ export const MapCanvas = memo(function MapCanvas({
     }
 
     return runWhenStyleLoaded(map, applyFutureRadarLayer)
-  }, [activeLayer, radarOpacity, radarView, selectedFutureRadarFrame])
+  }, [activeFutureRadarFrame, activeLayer, radarOpacity, radarView])
 
-  const satelliteOverlayUrl =
-    requestViewport && activeLayer === 'Satellite'
-      ? buildSatelliteImageUrl(satelliteLayer, {
-          west: requestViewport.west,
-          south: requestViewport.south,
-          east: requestViewport.east,
-          north: requestViewport.north,
-          width: requestViewport.width,
-          height: requestViewport.height,
-          time: selectedSatelliteTime,
-        })
-      : null
-  const {
-    activeFrame: activeSatelliteFrame,
-    pendingFrame: pendingSatelliteFrame,
-    previousFrame: previousSatelliteFrame,
-    promotePendingFrame: promotePendingSatelliteFrame,
-  } = useBufferedRasterFrame(satelliteOverlayUrl, requestViewport)
+  const handlePendingFutureRadarLoad = () => {
+    if (pendingFutureRadarFrame) {
+      onFutureRadarFrameLoad(pendingFutureRadarFrame.frameKey)
+    }
+
+    promotePendingFutureRadarFrame()
+  }
+  const handlePendingFutureRadarError = () => {
+    if (pendingFutureRadarFrame) {
+      onFutureRadarFrameError(pendingFutureRadarFrame.frameKey)
+    }
+  }
+  useEffect(() => {
+    if (!pendingFutureRadarFrame) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      onFutureRadarFrameError(pendingFutureRadarFrame.frameKey)
+    }, 20_000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [onFutureRadarFrameError, pendingFutureRadarFrame])
 
   return (
     <div className="map-surface">
@@ -2315,6 +2377,16 @@ export const MapCanvas = memo(function MapCanvas({
             src={pendingSatelliteFrame.url}
             alt=""
             onLoad={promotePendingSatelliteFrame}
+          />
+        ) : null}
+        {pendingFutureRadarFrame ? (
+          <img
+            key={`${pendingFutureRadarFrame.url}-preload`}
+            className="map-raster-preload"
+            src={pendingFutureRadarFrame.url}
+            alt=""
+            onLoad={handlePendingFutureRadarLoad}
+            onError={handlePendingFutureRadarError}
           />
         ) : null}
       </div>
@@ -2538,6 +2610,7 @@ function buildWinterSelectionFromFeature(
 function useBufferedRasterFrame(
   targetUrl: string | null,
   viewport: ViewportSnapshot | null,
+  frameKey?: string | null,
 ) {
   const [activeFrame, setActiveFrame] = useState<BufferedRasterFrame | null>(null)
   const [pendingFrame, setPendingFrame] = useState<BufferedRasterFrame | null>(null)
@@ -2558,17 +2631,12 @@ function useBufferedRasterFrame(
 
     const nextFrame: BufferedRasterFrame = {
       url: targetUrl,
+      frameKey: frameKey ?? targetUrl,
       viewport,
     }
 
-    if (!activeFrame) {
-      setActiveFrame(nextFrame)
-      setPendingFrame(null)
-      return
-    }
-
     setPendingFrame(nextFrame)
-  }, [activeFrame, pendingFrame, targetUrl, viewport])
+  }, [activeFrame, frameKey, pendingFrame, targetUrl, viewport])
 
   useEffect(() => {
     return () => {
@@ -2604,11 +2672,80 @@ function useBufferedRasterFrame(
   }
 }
 
+function useCachedFutureRadarRenderUrl(
+  targetUrl: string | null,
+  frame: FutureRadarFrame | null,
+  viewport: ViewportSnapshot | null,
+) {
+  const [cachedUrl, setCachedUrl] = useState<string | null>(null)
+  const blobUrlsRef = useRef<string[]>([])
+
+  useEffect(() => {
+    let active = true
+
+    if (!targetUrl || !frame || !viewport) {
+      setCachedUrl(null)
+      return
+    }
+
+    if (!isTauri()) {
+      setCachedUrl(targetUrl)
+      return
+    }
+
+    void invoke<number[]>('fetch_future_radar_render', {
+      request: {
+        renderUrl: targetUrl,
+        sourceUrl: frame.sourceUrl,
+        band: frame.renderBand,
+        west: viewport.west,
+        south: viewport.south,
+        east: viewport.east,
+        north: viewport.north,
+        width: viewport.width,
+        height: viewport.height,
+      },
+    })
+      .then((bytes) => {
+        if (!active || bytes.length === 0) {
+          return
+        }
+
+        const blobUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(bytes)], { type: 'image/png' }),
+        )
+
+        blobUrlsRef.current.push(blobUrl)
+        setCachedUrl(blobUrl)
+      })
+      .catch(() => {
+        if (active) {
+          setCachedUrl(targetUrl)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [frame, targetUrl, viewport])
+
+  useEffect(() => {
+    return () => {
+      blobUrlsRef.current.forEach((blobUrl) => URL.revokeObjectURL(blobUrl))
+      blobUrlsRef.current = []
+    }
+  }, [])
+
+  return cachedUrl
+}
+
 function renderBufferedRasterFrame(
   map: maplibregl.Map | null,
   frame: BufferedRasterFrame | null,
   opacity: number,
   variant: 'active' | 'previous' = 'active',
+  onLoad?: () => void,
+  onError?: () => void,
 ) {
   if (!map || !frame) {
     return null
@@ -2625,6 +2762,8 @@ function renderBufferedRasterFrame(
       src={frame.url}
       alt=""
       style={buildRasterFrameStyle(map, frame.viewport, opacity)}
+      onLoad={onLoad}
+      onError={onError}
     />
   )
 }
@@ -3408,6 +3547,20 @@ function buildRasterFrameStyle(
       opacity,
     }
   }
+}
+
+function getImageCoordinatesFromViewport(viewport: ViewportSnapshot): [
+  [number, number],
+  [number, number],
+  [number, number],
+  [number, number],
+] {
+  return [
+    [viewport.west, viewport.north],
+    [viewport.east, viewport.north],
+    [viewport.east, viewport.south],
+    [viewport.west, viewport.south],
+  ]
 }
 
 function lngLatToWebMercator(lon: number, lat: number): [number, number] {
