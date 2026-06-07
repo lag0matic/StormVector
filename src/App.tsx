@@ -272,7 +272,7 @@ function App() {
   }, [])
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
-    readStoredJson<ThemeMode>(storageKeys.themeMode, 'light'),
+    readStoredJson<ThemeMode>(storageKeys.themeMode, 'dark'),
   )
   const [homeLocation, setHomeLocation] = useState<SavedLocation | null>(() =>
     readStoredJson<SavedLocation | null>(storageKeys.homeLocation, null),
@@ -2110,49 +2110,53 @@ function App() {
               </div>
             </div>
 
-            <div className="track-bar-controls">
-              <label className="slider-row">
-                <span>Speed</span>
-                <strong>{stormTrackSpeedMph} mph</strong>
-              </label>
-              <input
-                type="range"
-                min="5"
-                max="80"
-                step="5"
-                value={stormTrackSpeedMph}
-                onChange={(event) => setStormTrackSpeedMph(Number(event.target.value))}
-              />
-              {stormTrackSpeedPresets.length > 0 ? (
-                <div className="chip-group" aria-label="Storm motion presets">
-                  {stormTrackSpeedPresets.map((preset) => (
-                    <button
-                      key={preset.speedMph}
-                      type="button"
-                      className={
-                        stormTrackSpeedMph === preset.speedMph ? 'chip active' : 'chip'
-                      }
-                      onClick={() => setStormTrackSpeedMph(preset.speedMph)}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+            {trackToolEnabled || stormTrackOrigin || stormTrackEnd ? (
+              <>
+                <div className="track-bar-controls">
+                  <label className="slider-row">
+                    <span>Speed</span>
+                    <strong>{stormTrackSpeedMph} mph</strong>
+                  </label>
+                  <input
+                    type="range"
+                    min="5"
+                    max="80"
+                    step="5"
+                    value={stormTrackSpeedMph}
+                    onChange={(event) => setStormTrackSpeedMph(Number(event.target.value))}
+                  />
+                  {stormTrackSpeedPresets.length > 0 ? (
+                    <div className="chip-group" aria-label="Storm motion presets">
+                      {stormTrackSpeedPresets.map((preset) => (
+                        <button
+                          key={preset.speedMph}
+                          type="button"
+                          className={
+                            stormTrackSpeedMph === preset.speedMph ? 'chip active' : 'chip'
+                          }
+                          onClick={() => setStormTrackSpeedMph(preset.speedMph)}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
 
-            {stormTrackPlacesLoading ? (
-              <p className="source-note">Finding towns along the track...</p>
-            ) : null}
+                {stormTrackPlacesLoading ? (
+                  <p className="source-note">Finding towns along the track...</p>
+                ) : null}
 
-            {stormTrackArrivals.length > 0 ? (
-              <div className="track-arrivals">
-                {stormTrackArrivals.map((arrival) => (
-                  <span key={arrival.label} className="badge calm">
-                    {arrival.label}: {arrival.etaLabel}
-                  </span>
-                ))}
-              </div>
+                {stormTrackArrivals.length > 0 ? (
+                  <div className="track-arrivals">
+                    {stormTrackArrivals.map((arrival) => (
+                      <span key={arrival.label} className="badge calm">
+                        {arrival.label}: {arrival.etaLabel}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
             </div>

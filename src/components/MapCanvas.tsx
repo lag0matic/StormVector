@@ -492,7 +492,7 @@ export const MapCanvas = memo(function MapCanvas({
       className: 'alert-popup',
     })
     markerRef.current = new maplibregl.Marker({
-      color: '#184f6b',
+      color: '#00d4aa',
       scale: 1.1,
     })
       .setLngLat(initialCenterRef.current)
@@ -2783,7 +2783,7 @@ function addRadarSiteIcon(map: maplibregl.Map) {
   }
 
   context.clearRect(0, 0, 32, 32)
-  context.strokeStyle = '#184f6b'
+  context.strokeStyle = '#00d4aa'
   context.lineWidth = 2.2
   context.lineCap = 'round'
   context.lineJoin = 'round'
@@ -3179,7 +3179,7 @@ function syncStormTrackSource(
       source: stormTrackSourceId,
       filter: ['==', ['get', 'kind'], 'track'],
       paint: {
-        'line-color': '#19b4ff',
+        'line-color': '#00d4aa',
         'line-width': 4,
         'line-dasharray': [2, 1.5],
         'line-opacity': 0.92,
@@ -3205,9 +3205,9 @@ function syncStormTrackSource(
           'match',
           ['get', 'kind'],
           'origin',
-          '#19b4ff',
+          '#00d4aa',
           'end',
-          '#7fe0ff',
+          '#7dd3c7',
           '#ffffff',
         ],
         'circle-stroke-color': '#0f2533',
