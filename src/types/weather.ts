@@ -127,10 +127,6 @@ export type LocationWeather = {
     sky: string
     precip: string
     lastUpdated: string
-    activeAlert?: {
-      event: string
-      expires: string
-    }
   }
   sun: {
     sunrise: string

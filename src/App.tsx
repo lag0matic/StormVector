@@ -2452,16 +2452,10 @@ function App() {
                 <strong>{weather.current.sky}</strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Precip</p>
+                <p className="card-label">Precip Chance</p>
                 <strong>{weather.current.precip}</strong>
               </article>
             </div>
-            {weather.current.activeAlert ? (
-              <div className="current-alert-row">
-                <span className="badge danger">{weather.current.activeAlert.event}</span>
-                <span className="badge">{weather.current.activeAlert.expires}</span>
-              </div>
-            ) : null}
             <div className="sun-row">
               <span className="badge calm">Sunrise {weather.sun.sunrise}</span>
               <span className="badge calm">UV {weather.outdoor.uvIndex} ({weather.outdoor.uvRisk})</span>
