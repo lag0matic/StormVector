@@ -657,6 +657,12 @@
   font-size: 0.84rem;
 }
 
+.current-alert-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .outdoor-source {
   margin: 0;
 }

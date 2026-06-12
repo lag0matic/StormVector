@@ -49,6 +49,7 @@ type NwsHourlyForecastResponse = {
       temperature: number
       temperatureUnit: string
       shortForecast: string
+      isDaytime?: boolean
       windSpeed: string
       windDirection: string
       probabilityOfPrecipitation?: {
@@ -79,6 +80,22 @@ type NwsStationsResponse = {
       stationIdentifier?: string
     }
   }>
+}
+
+type NwsAlertsResponse = {
+  features?: Array<{
+    properties?: {
+      event?: string
+      severity?: string
+      expires?: string
+    }
+  }>
+}
+
+type CurrentWeatherAlert = {
+  event: string
+  severity?: string
+  expires?: string
 }
 
 type AwcMetarResponse = Array<{
@@ -115,6 +132,7 @@ const hourlyForecastResponseCache = new Map<
 const gridpointResponseCache = new Map<string, CacheEntry<NwsGridpointResponse>>()
 const stationListCache = new Map<string, CacheEntry<NwsStationsResponse>>()
 const metarCache = new Map<string, CacheEntry<AwcMetarResponse[number] | null>>()
+const pointAlertsCache = new Map<string, CacheEntry<NwsAlertsResponse>>()
 
 export async function fetchLocationWeather(
   coordinates: [number, number],
@@ -181,6 +199,12 @@ export async function fetchLocationWeather(
         fetchAwcMetar(stationId, signal),
       ).catch(() => null)
     : null
+  const pointAlerts = await getCachedOrFetch(
+    pointAlertsCache,
+    pointCacheKey,
+    () => fetchPointAlerts(latitude, longitude, signal),
+  ).catch(() => ({ features: [] }))
+  const activeWeatherAlert = getHighestCurrentAlert(pointAlerts)
   const outdoorConditions = await fetchOutdoorConditions(coordinates, signal).catch(() => null)
 
   const currentHour = hourlyForecast.properties.periods[0] ?? null
@@ -245,8 +269,9 @@ export async function fetchLocationWeather(
     current: {
       temperature: formatTemperature(currentTempF, 'F'),
       summary:
+        activeWeatherAlert?.event ??
         normalizeObservationSummary(currentObservation) ??
-        currentHour?.shortForecast ??
+        normalizeForecastSummary(currentHour?.shortForecast, currentHour?.isDaytime) ??
         forecast.properties.periods[0]?.shortForecast ??
         'Current conditions unavailable',
       feelsLike: formatTemperature(currentFeelsLike, 'F'),
@@ -258,11 +283,17 @@ export async function fetchLocationWeather(
         currentObservation?.wgst ?? currentWindGust,
         currentHour?.windDirection,
       ),
-      sky: normalizeSkyCover(currentObservation, currentSkyCover),
-      precip: normalizeCurrentPrecip(currentObservation),
+      sky: normalizeSkyCover(currentObservation, currentSkyCover, currentHour?.isDaytime),
+      precip: activeWeatherAlert ? alertPrecipSummary(activeWeatherAlert.event) : normalizeCurrentPrecip(currentObservation),
       lastUpdated: formatObservationTimestamp(
         currentObservation?.reportTime ?? currentHour?.startTime,
       ),
+      activeAlert: activeWeatherAlert
+        ? {
+            event: activeWeatherAlert.event,
+            expires: formatAlertExpiration(activeWeatherAlert.expires),
+          }
+        : undefined,
     },
     sun: {
       sunrise: formatSunTime(point.properties.astronomicalData?.sunrise),
@@ -385,6 +416,19 @@ async function fetchAwcMetar(stationId: string, signal?: AbortSignal) {
 
   const payload = (await response.json()) as AwcMetarResponse
   return payload[0] ?? null
+}
+
+async function fetchPointAlerts(
+  latitude: number,
+  longitude: number,
+  signal?: AbortSignal,
+) {
+  return fetchJson<NwsAlertsResponse>(
+    `https://api.weather.gov/alerts/active?point=${latitude},${longitude}`,
+    {
+      signal,
+    },
+  )
 }
 
 async function getCachedOrFetch<T>(
@@ -698,7 +742,7 @@ function normalizeObservationSummary(observation: AwcMetarResponse[number] | nul
     return null
   }
 
-  const sky = normalizeSkyCover(observation, null)
+  const sky = normalizeSkyCover(observation, null, null)
   const precip = normalizeCurrentPrecip(observation)
 
   if (precip === 'Dry') {
@@ -708,23 +752,39 @@ function normalizeObservationSummary(observation: AwcMetarResponse[number] | nul
   return `${sky} with ${precip.toLowerCase()}`
 }
 
+function normalizeForecastSummary(summary?: string, isDaytime?: boolean) {
+  if (!summary) {
+    return null
+  }
+
+  if (isDaytime === false) {
+    return summary
+      .replace(/\bmostly sunny\b/gi, 'Mostly clear')
+      .replace(/\bpartly sunny\b/gi, 'Partly cloudy')
+      .replace(/\bsunny\b/gi, 'Clear')
+  }
+
+  return summary
+}
+
 function normalizeSkyCover(
   observation: AwcMetarResponse[number] | null,
   skyCover: number | null,
+  isDaytime: boolean | null | undefined,
 ) {
   const cover = observation?.cover
 
   if (cover === 'OVC') return 'Overcast'
   if (cover === 'BKN') return 'Mostly cloudy'
   if (cover === 'SCT') return 'Partly cloudy'
-  if (cover === 'FEW') return 'Mostly sunny'
+  if (cover === 'FEW') return isDaytime === false ? 'Mostly clear' : 'Mostly sunny'
   if (cover === 'CLR' || cover === 'SKC') return 'Clear'
 
   if (skyCover !== null) {
     if (skyCover >= 90) return 'Overcast'
     if (skyCover >= 70) return 'Mostly cloudy'
     if (skyCover >= 35) return 'Partly cloudy'
-    if (skyCover >= 10) return 'Mostly sunny'
+    if (skyCover >= 10) return isDaytime === false ? 'Mostly clear' : 'Mostly sunny'
     return 'Clear'
   }
 
@@ -742,6 +802,59 @@ function normalizeCurrentPrecip(observation: AwcMetarResponse[number] | null) {
   if (/RA|DZ|SHRA|SH/.test(raw)) return 'Rain'
 
   return 'Dry'
+}
+
+function getHighestCurrentAlert(alerts: NwsAlertsResponse): CurrentWeatherAlert | undefined {
+  const activeAlerts =
+    alerts.features
+      ?.map((feature) => feature.properties)
+      .filter((properties): properties is CurrentWeatherAlert =>
+        typeof properties?.event === 'string' && properties.event.length > 0,
+      ) ?? []
+
+  return activeAlerts.sort(
+    (left, right) => alertPriority(right.event) - alertPriority(left.event),
+  )[0]
+}
+
+function alertPriority(event?: string) {
+  const normalizedEvent = event?.toLowerCase() ?? ''
+
+  if (normalizedEvent.includes('tornado warning')) return 100
+  if (normalizedEvent.includes('severe thunderstorm warning')) return 90
+  if (normalizedEvent.includes('flash flood warning')) return 85
+  if (normalizedEvent.includes('warning')) return 80
+  if (normalizedEvent.includes('watch')) return 60
+  if (normalizedEvent.includes('statement')) return 40
+  if (normalizedEvent.includes('advisory')) return 30
+  return 10
+}
+
+function alertPrecipSummary(event: string) {
+  const normalizedEvent = event.toLowerCase()
+
+  if (normalizedEvent.includes('thunderstorm')) return 'Thunderstorms'
+  if (normalizedEvent.includes('tornado')) return 'Tornadic storm'
+  if (normalizedEvent.includes('flood')) return 'Flooding threat'
+  if (normalizedEvent.includes('winter')) return 'Winter weather'
+  return 'Active alert'
+}
+
+function formatAlertExpiration(value?: string) {
+  if (!value) {
+    return 'Expires --'
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Expires --'
+  }
+
+  return `Expires ${date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`
 }
 
 function parseWindSpeedMph(value?: string) {
