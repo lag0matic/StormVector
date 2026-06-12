@@ -162,7 +162,9 @@ async fn fetch_future_radar_render(
     app: tauri::AppHandle,
     request: FutureRadarRenderRequest,
 ) -> Result<Vec<u8>, String> {
-    if !request.render_url.starts_with("https://raster.eoapi.dev/external/bbox/")
+    if !request
+        .render_url
+        .starts_with("https://raster.eoapi.dev/external/bbox/")
         || !request.source_url.starts_with(HRRR_S3_HOST)
     {
         return Err("Future radar render host is not allowed.".to_string());
@@ -352,7 +354,10 @@ async fn fetch_hrrr_message(source_url: &str, band: u32) -> Result<Vec<u8>, Stri
         .map_err(|error| format!("HRRR index request failed: {error}"))?;
 
     if !idx_response.status().is_success() {
-        return Err(format!("HRRR index request failed: {}", idx_response.status()));
+        return Err(format!(
+            "HRRR index request failed: {}",
+            idx_response.status()
+        ));
     }
 
     let idx_text = idx_response
@@ -381,7 +386,10 @@ async fn fetch_hrrr_message(source_url: &str, band: u32) -> Result<Vec<u8>, Stri
         .map_err(|error| format!("HRRR message request failed: {error}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("HRRR message request failed: {}", response.status()));
+        return Err(format!(
+            "HRRR message request failed: {}",
+            response.status()
+        ));
     }
 
     response
@@ -663,24 +671,47 @@ fn find_wgrib2(app: &tauri::AppHandle) -> Option<DecoderRuntime> {
 
     candidates
         .into_iter()
-        .find(|candidate| candidate.exists())
-        .map(|candidate| DecoderRuntime {
-            executable: candidate,
-            library_dir: None,
-            terminfo_dir: None,
-        })
+        .find_map(decoder_runtime_from_candidate)
         .or_else(|| {
             env::var_os("PATH").and_then(|paths| {
                 env::split_paths(&paths)
                     .map(|path| path.join(executable_name))
-                    .find(|candidate| candidate.exists())
-                    .map(|candidate| DecoderRuntime {
-                        executable: candidate,
-                        library_dir: None,
-                        terminfo_dir: None,
-                    })
+                    .find_map(decoder_runtime_from_candidate)
             })
         })
+}
+
+fn decoder_runtime_from_candidate(candidate: PathBuf) -> Option<DecoderRuntime> {
+    if !candidate.exists() {
+        return None;
+    }
+
+    let mut library_dir = None;
+    let mut terminfo_dir = None;
+
+    if cfg!(target_os = "linux") {
+        if let Some(runtime_root) = candidate
+            .parent()
+            .filter(|parent| parent.file_name().is_some_and(|name| name == "bin"))
+            .and_then(Path::parent)
+        {
+            let candidate_library_dir = runtime_root.join("lib");
+            let candidate_terminfo_dir = runtime_root.join("share").join("terminfo");
+
+            if candidate_library_dir.exists() {
+                library_dir = Some(candidate_library_dir);
+            }
+            if candidate_terminfo_dir.exists() {
+                terminfo_dir = Some(candidate_terminfo_dir);
+            }
+        }
+    }
+
+    Some(DecoderRuntime {
+        executable: candidate,
+        library_dir,
+        terminfo_dir,
+    })
 }
 
 fn add_decoder_library_path(command: &mut Command, library_dir: &Path) {
