@@ -184,8 +184,11 @@ export async function fetchRegionalRadarTimeline(
 
   const layerName =
     product === 'composite' ? 'conus_cref_qcd' : 'conus_bref_qcd'
+  const refreshParam = options?.forceRefresh
+    ? `&_stormvector=${Date.now()}`
+    : ''
   const response = await fetch(
-    `https://opengeo.ncep.noaa.gov/geoserver/conus/${layerName}/wms?service=WMS&version=1.1.1&request=GetCapabilities`,
+    `https://opengeo.ncep.noaa.gov/geoserver/conus/${layerName}/wms?service=WMS&version=1.1.1&request=GetCapabilities${refreshParam}`,
     {
       signal,
       cache: options?.forceRefresh ? 'no-store' : 'default',
@@ -226,7 +229,9 @@ async function fetchRadarMetadata(
   }
 
   const response = await fetch(
-    `https://opengeo.ncep.noaa.gov/geoserver/${site.id.toLowerCase()}/ows?service=WMS&version=1.1.1&request=GetCapabilities`,
+    `https://opengeo.ncep.noaa.gov/geoserver/${site.id.toLowerCase()}/ows?service=WMS&version=1.1.1&request=GetCapabilities${
+      options?.forceRefresh ? `&_stormvector=${Date.now()}` : ''
+    }`,
     {
       signal,
       cache: options?.forceRefresh ? 'no-store' : 'default',
