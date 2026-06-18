@@ -2,7 +2,7 @@
 
 StormVector is a desktop-first U.S. weather workstation built for practical situational awareness: live radar, warnings, storm reports, forecast overlays, and point weather in one map-centered app.
 
-Current stable release: `v1.3.4`
+Current stable release: `v1.4`
 
 ## Highlights
 
@@ -26,12 +26,12 @@ Current stable release: `v1.3.4`
 
 Download the packaged app from the latest GitHub release.
 
-Current `v1.3.4` release files:
+Current `v1.4` release files:
 
-- Windows: `StormVector_1.3.4_x64-setup.exe`
-- Linux AppImage: `stormvector-appimage-1.3.4.zip`
-- Linux Debian / Ubuntu: `stormvector-deb-1.3.4.zip`
-- Linux Fedora / RHEL / openSUSE: `stormvector-rpm-1.3.4.zip`
+- Windows: `StormVector_1.4.0_x64-setup.exe`
+- Linux AppImage: `stormvector-appimage-1.4.0.zip`
+- Linux Debian / Ubuntu: `stormvector-deb-1.4.0.zip`
+- Linux Fedora / RHEL / openSUSE: `stormvector-rpm-1.4.0.zip`
 
 The Linux downloads are packaged apps. You should not need Node.js, Rust, Tauri, or other development prerequisites unless you are building StormVector from source.
 
@@ -39,7 +39,7 @@ The Linux downloads are packaged apps. You should not need Node.js, Rust, Tauri,
 
 StormVector is a real working app, but it is still an early personal project. Use it as a situational-awareness aid, not as your only source for safety-critical weather decisions.
 
-This project was coded with the help of AI, including OpenAI Codex. Human review, testing, and release decisions still matter, and bugs or rough edges may exist.
+This project is coded with AI assistance, including OpenAI Codex. Human review, testing, and release decisions still matter, and bugs or rough edges may exist.
 
 ## Data Sources And Attribution
 
