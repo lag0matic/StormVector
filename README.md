@@ -71,6 +71,14 @@ StormVector is not affiliated with, endorsed by, or certified by NOAA, the Natio
 
 ## Running From Source
 
+StormVector uses CARTO dark basemap tiles when a CARTO key is provided. Create a local `.env.local` file when building from source:
+
+```bash
+VITE_CARTO_BASEMAP_KEY=your-carto-basemap-key
+```
+
+Do not commit `.env.local` or personal API keys. If no CARTO key is set, StormVector falls back to OpenStreetMap tiles for the basemap instead of requesting unauthenticated CARTO tiles.
+
 ```bash
 npm install
 npm run dev
