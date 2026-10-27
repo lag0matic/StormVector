@@ -69,6 +69,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate CARTO basemap key
+        env:
+          VITE_CARTO_BASEMAP_KEY: ${{ secrets.VITE_CARTO_BASEMAP_KEY }}
+        run: test -n "$VITE_CARTO_BASEMAP_KEY"
+
       - name: Build Linux bundles
         run: npm run tauri:build
         env:

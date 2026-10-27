@@ -152,12 +152,17 @@ const nativePinchZoomScaleRate = 0.35
 const nativePinchWheelRate = 0.03
 const maxNativePinchZoomDelta = 0.18
 const cartoBasemapKey = import.meta.env.VITE_CARTO_BASEMAP_KEY?.trim()
-const darkBasemapTileUrl = cartoBasemapKey
-  ? `https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(
+const lightBasemapTileUrl = cartoBasemapKey
+  ? `https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${encodeURIComponent(
       cartoBasemapKey,
     )}`
   : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-const darkBasemapAttribution = cartoBasemapKey
+const darkBasemapTileUrl = cartoBasemapKey
+  ? `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(
+      cartoBasemapKey,
+    )}`
+  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const basemapAttribution = cartoBasemapKey
   ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
   : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 
@@ -286,16 +291,15 @@ export const MapCanvas = memo(function MapCanvas({
         sources: {
           [lightBasemapSourceId]: {
             type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tiles: [lightBasemapTileUrl],
             tileSize: 256,
-            attribution:
-              '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            attribution: basemapAttribution,
           },
           [darkBasemapSourceId]: {
             type: 'raster',
             tiles: [darkBasemapTileUrl],
             tileSize: 256,
-            attribution: darkBasemapAttribution,
+            attribution: basemapAttribution,
           },
         },
         layers: [
