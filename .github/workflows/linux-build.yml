@@ -71,6 +71,8 @@ jobs:
 
       - name: Build Linux bundles
         run: npm run tauri:build
+        env:
+          VITE_CARTO_BASEMAP_KEY: ${{ secrets.VITE_CARTO_BASEMAP_KEY }}
 
       - name: Read app version
         id: app_version
