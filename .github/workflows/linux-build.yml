@@ -73,6 +73,9 @@ jobs:
       - name: Check frontend
         run: npm run lint
 
+      - name: Prepare bundled decoder
+        run: npm run prepare:decoders
+
       - name: Test forecast calculations
         run: cargo test --locked --lib
         working-directory: src-tauri
