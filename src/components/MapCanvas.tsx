@@ -151,20 +151,7 @@ const clickTolerancePixels = 6
 const nativePinchZoomScaleRate = 0.35
 const nativePinchWheelRate = 0.03
 const maxNativePinchZoomDelta = 0.18
-const cartoBasemapKey = import.meta.env.VITE_CARTO_BASEMAP_KEY?.trim()
-const lightBasemapTileUrl = cartoBasemapKey
-  ? `https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=${encodeURIComponent(
-      cartoBasemapKey,
-    )}`
-  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-const darkBasemapTileUrl = cartoBasemapKey
-  ? `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(
-      cartoBasemapKey,
-    )}`
-  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-const basemapAttribution = cartoBasemapKey
-  ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
-  : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+import { lightBasemapTileUrl, darkBasemapTileUrl, basemapAttribution } from '../services/basemap'
 
 export const MapCanvas = memo(function MapCanvas({
   center,

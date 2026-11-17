@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './index.css'
 import App from './App.tsx'
+import { WeatherDeskWindow } from './components/WeatherDeskWindow'
 
 class RootErrorBoundary extends Component<
   { children: ReactNode },
@@ -78,8 +79,12 @@ class RootErrorBoundary extends Component<
   }
 }
 
+if (new URLSearchParams(window.location.search).has('desk')) {
+  document.documentElement.dataset.theme = new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'
+}
+
 createRoot(document.getElementById('root')!).render(
   <RootErrorBoundary>
-    <App />
+    {new URLSearchParams(window.location.search).has('desk') ? <WeatherDeskWindow /> : <App />}
   </RootErrorBoundary>,
 )

@@ -38,6 +38,7 @@ import type {
 } from './types/weather'
 import { distanceBetweenMiles } from './utils/geo'
 import { formatEtaDuration } from './utils/time'
+import { AiPreferences } from './components/AiPreferences'
 
 const primaryLayers = ['Radar', 'Satellite', 'Forecast'] as const
 const forecastOverlays = ['None', 'SPC Storm Risk', 'Winter'] as const
@@ -70,7 +71,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.3.4'
+const appVersion = 'v1.5.0'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -1528,6 +1529,7 @@ function App() {
                     </div>
                   </div>
 
+                  <AiPreferences />
                   <div className="popover-section">
                     <p className="card-label">Alert types</p>
                     <div className="chip-group">
@@ -1770,6 +1772,10 @@ function App() {
             {layer}
           </button>
         ))}
+        <button type="button" onClick={() => {
+          invoke('open_storm_desk', { longitude: selectedCoordinates[0], latitude: selectedCoordinates[1], theme: themeMode })
+            .catch((cause) => setSearchError(String(cause)))
+        }}>Forecast Briefing</button>
       </nav>
 
       <main className="workspace">

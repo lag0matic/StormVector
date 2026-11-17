@@ -38,6 +38,7 @@ jobs:
             wget \
             file \
             libssl-dev \
+            libdbus-1-dev \
             libasound2-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
@@ -68,6 +69,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Check frontend
+        run: npm run lint
+
+      - name: Test forecast calculations
+        run: cargo test --locked --lib
+        working-directory: src-tauri
 
       - name: Validate CARTO basemap key
         env:
