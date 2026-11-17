@@ -1,12 +1,10 @@
-# Storm Desk Implementation Map
+# Forecast Briefing Implementation Map
 
 ## Product Goal
 
 Storm Desk explains model guidance for the selected map point without pretending
 to be a weather model. Every statement must be backed by visible model values,
 run times, and valid times.
-
-## Guardrails
 
 ## OpenAI Briefing Setup
 
@@ -20,7 +18,8 @@ provider. Storage errors are visible; there is no plain-text fallback.
 The secret is never returned by the status command, logged, or included in
 saved forecasts. The service is `com.lag0matic.stormvector`, entry
 `openai-api-key`. An explicitly set backend `OPENAI_API_KEY` remains a fallback
-when no saved entry exists. Removing a saved key does not unset that variable.
+when no saved entry exists or the keyring cannot be read. A saved key takes
+precedence. Removing a saved key does not unset that variable.
 Never use a `VITE_` variable for this key.
 
 Generate AI briefing is an explicit billed request. No polling, automatic
@@ -37,7 +36,10 @@ semantic correctness. No paid live test has been made by the coding agent.
 - Alerts stay in the existing Hazards panel.
 - The first release works without an AI provider or API key.
 
-## Milestones
+## Original Roadmap
+
+These milestones describe the original design, not a list of shipped features.
+The current implementation and remaining work are recorded below.
 
 ### 1. HRRR evidence preview
 
@@ -77,7 +79,8 @@ Planned range choices:
 - Build a compact evidence packet from already-computed facts.
 - Support an explicitly configured provider rather than shipping a secret key.
 - Require citations back to model, run, valid time, and field.
-- Reject unsupported claims and show the deterministic view if narration fails.
+- Validate citation IDs and show the deterministic view if narration fails.
+  Semantic verification of every generated claim remains future work.
 
 ### 5. Deeper questions
 
@@ -85,7 +88,7 @@ Planned range choices:
 - Map-aware questions using selected layers and model evidence.
 - Explicit confidence language based on ensemble spread and model agreement.
 
-## Current Vertical Slice
+## Current Implementation (1.5.0)
 
 ### Daily Forecasts And NBM Probabilities
 
@@ -166,18 +169,25 @@ not row-by-row numerical recitation. No additional paid AI test was performed.
 Implemented follow-up: persistent JSON run snapshots in the application's data
 directory (`model-runs-v1`), plus offline briefing retrieval (`saved-briefings-v1`).
 These are compact normalized point values, not full GRIB archives. Repeated
-requests reuse the same run/location/hour selection. SQLite migration and a
-history browser remain future work; no retention deletion runs yet.
+requests reuse the same run/location/hour selection. SQLite migration remains
+future work; no retention deletion runs yet.
 
 Update: the Saved runs selector now exposes up to 100 archived briefings for the
 exact point and range, newest first. Each new successful run is retained in the
 briefing history directory. Older latest-only briefings can still be opened
 with Load saved. NOAA inventory links are shown for each current/prior sample.
 
-Available ranges: HRRR 6 hours, GFS 7 days (daily samples), and GFS days 8-15
-(daily trend samples). GFS precipitation is deliberately unavailable until its
-accumulation intervals are normalized. NBM and GEFS remain planned, not shipped.
+Available ranges: HRRR 6 hours, GFS 7 days (complete daily intervals), and GFS
+days 8-15 (complete daily intervals). NBM precipitation and snowfall guidance
+are implemented where native data is available. GEFS and ECMWF point ingestion,
+48-hour HRRR guidance, cache retention, and SQLite migration remain future work.
 
-Milestone 1 is the active implementation. It reuses StormVector's bundled
-`wgrib2` decoder and NOAA HRRR S3 byte-range downloads, so it does not require a
-new server or full GRIB file downloads.
+The implementation reuses StormVector's bundled `wgrib2` decoder and NOAA S3
+byte-range downloads, so it does not require a new server or full GRIB downloads.
+
+Release hardening verifies allowed NOAA inventory URLs, supports environment
+keys when native storage is unavailable, clears stale imagery on frame changes,
+and allows image-load retries. Reopening the briefing updates its selected
+location. Closing the main window exits both windows. The packaged Windows
+1.5.0 app launched and exited without leftover StormVector, decoder, or associated
+WebView processes. The installer itself has not been installed by the agent.
