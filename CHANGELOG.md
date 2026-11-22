@@ -1,5 +1,9 @@
 # Release Notes
 
+## 1.5.2
+
+- Replaced the desktop icon and browser favicon with the teal Frontal mark.
+
 ## 1.5.1
 
 - Added ECMWF AIFS precipitation, temperature, and sustained-wind maps, with playback through day 15.
