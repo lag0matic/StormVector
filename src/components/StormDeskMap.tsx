@@ -3,7 +3,14 @@ import maplibregl, { type ImageSource } from 'maplibre-gl'
 import { getFutureRadarImageCoordinates } from '../services/futureRadar'
 import { lightBasemapTileUrl, darkBasemapTileUrl, basemapAttribution } from '../services/basemap'
 
-export function StormDeskMap({ image, coordinates }: { image: string | null; coordinates: [number, number] }) {
+type ImageCorners = ReturnType<typeof getFutureRadarImageCoordinates>
+const radarCorners = getFutureRadarImageCoordinates()
+
+export function StormDeskMap({ image, coordinates, corners = radarCorners }: {
+  image: string | null
+  coordinates: [number, number]
+  corners?: ImageCorners
+}) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   useEffect(() => {
@@ -33,16 +40,16 @@ export function StormDeskMap({ image, coordinates }: { image: string | null; coo
         return
       }
       const source = map.getSource('forecast') as ImageSource | undefined
-      if (source) source.updateImage({ url: image })
+      if (source) source.updateImage({ url: image, coordinates: corners })
       else {
-        map.addSource('forecast', { type: 'image', url: image, coordinates: getFutureRadarImageCoordinates() })
+        map.addSource('forecast', { type: 'image', url: image, coordinates: corners })
         map.addLayer({ id: 'forecast', type: 'raster', source: 'forecast', paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } })
       }
     }
-    if (map.isStyleLoaded()) update()
+    if (map.getLayer('basemap')) update()
     else map.once('load', update)
     return () => { map.off('load', update) }
-  }, [image, coordinates])
+  }, [image, coordinates, corners])
 
   return <div ref={container} className="desk-image-map" aria-label="Forecast map" />
 }

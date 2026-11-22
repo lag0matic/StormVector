@@ -1,5 +1,60 @@
 # Forecast Briefing Implementation Map
 
+## AIFS Maps
+
+Open Forecast Briefing > AIFS maps > Load latest run. The view renders ECMWF
+AIFS Single 2 m temperature, 10 m sustained wind speed, and precipitation over
+North America, with 6- and 24-hour liquid-equivalent
+totals and a forecast-hour picker/playback through +360 hours. Days 8-15 are
+trend guidance. This is a precipitation map, not radar, snowfall depth, or a
+precipitation probability.
+
+The app checks the +360h index to find a complete recent run, downloads only
+the indexed `tp` GRIB messages, and subtracts the earlier accumulation from
+the later one. It decodes with bundled wgrib2 and keeps rendered frames in
+memory for the current range and period. Playback waits for a decoded next frame.
+The source is [ECMWF Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data),
+CC BY 4.0. No key or paid inference request is needed for the maps.
+
+To rerun the live smoke test, set `STORMVECTOR_TEST_WGRIB2` to the bundled
+decoder executable and run `cargo test --lib live_precipitation_at_day_one_and_day_fifteen -- --ignored`
+from `src-tauri`. The map controls are independent of Luna's automatic
+point forecast. The source panel shows local intervals, liquid totals, and
+end-of-window temperature and wind snapshots.
+
+## Combined Briefing
+
+The single Generate briefing action checks HRRR, week-range GFS with available
+NBM probabilities, near-term AIFS, and relevant SPC outlooks. Point bundles
+and refresh timestamps persist in the briefing webview's local storage for
+the 40 most recent exact points. Each point can refresh once per hour on
+request, without background polling. Unchanged GFS/HRRR cycles reuse saved
+values; unchanged AIFS reuses saved values when they still cover the selected
+near-term sample. SPC outlooks expire at their official end time even during
+the cooldown. Map imagery, extended GFS, and date-specific NBM snow remain
+separate views. Run `node scripts/check-briefing-cache.mjs` to test the cooldown
+and cycle reuse without network or AI calls.
+
+Active National Weather Service alerts are checked at the selected point
+on each Generate or Regenerate, outside the model cooldown. They appear
+separately from the model forecast and are sent as cited official alert
+records, not interpretations. The point filter does not include a marine
+alert merely because it covers waters near a land selection.
+
+## SPC Outlook Context
+
+On Generate briefing, query NOAA SPC Day 1-3 categorical outlooks for the
+selected point. Use official issuance and validity timestamps and only pass
+outlooks that overlap upcoming portions of the latest model guidance. When
+more than one category covers the point in the latest issuance, keep the
+highest. Forecast source citations show the official category and validity
+separately from model guidance. Empty or failed lookups do not mean no storm
+risk. No probabilities or alerts are inferred from the categories.
+
+Run `node scripts/check-spc-briefing.mjs` to check location requests, time
+matching, overlapping categories, and partial service outages without paying
+for a Luna request.
+
 ## Product Goal
 
 Storm Desk explains model guidance for the selected map point without pretending

@@ -29,7 +29,7 @@ export type StormDeskHour = {
 }
 
 export type StormDeskRun = {
-  model: 'HRRR' | 'GFS' | 'NBM' | 'NBM-SNOW'
+  model: 'HRRR' | 'GFS' | 'NBM' | 'NBM-SNOW' | 'AIFS'
   runTime: string
   hours: StormDeskHour[]
 }
@@ -83,6 +83,10 @@ export function listStormDeskHistory(coordinates: [number, number], range: Storm
 }
 
 export function stormDeskSourceUrl(run: StormDeskRun, hour: StormDeskHour) {
+  if (run.model === 'AIFS') {
+    const cycle = new Date(run.runTime).toISOString().slice(0, 13).replace(/[-T]/g, '')
+    return `https://data.ecmwf.int/forecasts/${cycle.slice(0, 8)}/${cycle.slice(8)}z/aifs-single/0p25/oper/${cycle}0000-${hour.forecastHour}h-oper-fc.grib2`
+  }
   if (run.model === 'NBM-SNOW') return buildNbmUrl(new Date(run.runTime), hour.forecastHour).replaceAll('/qmd/', '/core/').replace('.qmd.', '.core.')
   if (run.model === 'NBM') return buildNbmUrl(new Date(run.runTime), hour.forecastHour)
   return buildSourceUrl(new Date(run.runTime), hour.forecastHour, run.model)
@@ -110,6 +114,7 @@ export async function fetchSnowfallGuidance(coordinates: [number, number], day: 
 export async function fetchStormDeskEvidence(
   coordinates: [number, number],
   range: StormDeskRange = 'short',
+  cached?: StormDeskEvidence,
 ): Promise<StormDeskEvidence> {
   const model = range === 'short' ? 'HRRR' : 'GFS'
   const latestRun = await resolveLatestRun(model)
@@ -118,7 +123,9 @@ export async function fetchStormDeskEvidence(
 
   const dailyTimes = buildDailyTimes(latestRun, range)
 
-  const evidence = await invoke<StormDeskEvidence>('fetch_storm_desk_evidence', {
+  const evidence = cached && Date.parse(cached.latest.runTime) === latestRun.getTime() &&
+    Date.parse(cached.previous.runTime) === previousRun.getTime() ? { ...cached, probabilityError: undefined } :
+    await invoke<StormDeskEvidence>('fetch_storm_desk_evidence', {
     request: {
       longitude: coordinates[0],
       latitude: coordinates[1],
@@ -132,7 +139,7 @@ export async function fetchStormDeskEvidence(
   })
   if (model === 'GFS') {
     try { evidence.nbm = await fetchNbmGuidance(coordinates, evidence.latest.hours) }
-    catch (cause) { evidence.probabilityError = String(cause) }
+    catch (cause) { evidence.nbm = null; evidence.probabilityError = String(cause) }
     await invoke('save_storm_desk_enriched', { evidence })
   }
   return evidence

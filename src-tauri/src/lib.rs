@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+mod aifs;
 mod storm_desk_ai;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -208,7 +209,7 @@ struct StormDeskRunResponse {
     hours: Vec<StormDeskHourResponse>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StormDeskHourResponse {
     #[serde(default)]
@@ -2243,6 +2244,9 @@ pub fn run() {
             open_weather_source,
             check_hrrr_source_available,
             fetch_future_radar_render,
+            aifs::latest_aifs_run,
+            aifs::render_aifs_map,
+            aifs::fetch_aifs_point_evidence,
             fetch_storm_desk_evidence,
             fetch_storm_desk_probabilities,
             save_storm_desk_enriched,

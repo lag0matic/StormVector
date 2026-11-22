@@ -18,6 +18,16 @@ export function buildSpcCategoricalQueryUrl(day: 1 | 2 | 3) {
   return `${buildSpcLayerUrl(layerId)}/query?where=1%3D1&outFields=dn,label,valid,expire&returnGeometry=true&f=geojson`
 }
 
+export function buildSpcPointQueryUrl(day: 1 | 2 | 3, longitude: number, latitude: number) {
+  const url = new URL(buildSpcCategoricalQueryUrl(day))
+  url.search = new URLSearchParams({
+    where: '1=1', outFields: 'label,issue,valid,expire', returnGeometry: 'false', f: 'json',
+    geometry: `${longitude},${latitude}`, geometryType: 'esriGeometryPoint',
+    inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+  }).toString()
+  return url.toString()
+}
+
 export function buildWinterStormOutlookQueryUrl(
   product: 'snowfall' | 'freezingRain',
   day: 1 | 2 | 3 | 4,

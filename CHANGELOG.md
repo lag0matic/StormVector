@@ -1,5 +1,12 @@
 # Release Notes
 
+## 1.5.1
+
+- Added ECMWF AIFS precipitation, temperature, and sustained-wind maps, with playback through day 15.
+- Consolidated Luna into one briefing that gathers available model guidance for the selected point and reuses it for an hour across app restarts.
+- Added location- and time-matched SPC outlooks, plus a fresh check for active NWS alerts when generating a briefing.
+- Tuned Luna to lead with active alerts and their time zones, make a concise forecast call, and keep model names in the sources unless a meaningful disagreement affects the forecast.
+
 ## 1.5.0
 
 - Added a separate Forecast Briefing window with location-aware model comparisons, saved run history, and on-demand AI interpretation.

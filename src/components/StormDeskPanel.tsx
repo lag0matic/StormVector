@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { StormDeskAi } from './StormDeskAi'
 import { StormDeskImagery } from './StormDeskImagery'
 import { SnowfallOutlook } from './SnowfallOutlook'
 import { WeatherSourceLink } from './WeatherSourceLink'
@@ -106,8 +105,6 @@ export function StormDeskPanel({ coordinates }: StormDeskPanelProps) {
       {rangeControl}
       <p className="source-note">Forecast period: {formatValidTime(evidence.latest.hours[0].intervalStartTime ?? evidence.latest.hours[0].validTime)} – {formatValidTime(evidence.latest.hours.at(-1)!.validTime)}</p>
       {loadedRange === 'extended' ? <p className="source-note">Extended-range trend guidance. Local timing and amounts are highly uncertain; this is one model, not an ensemble confidence estimate.</p> : null}
-      <StormDeskAi key={JSON.stringify(evidence)} evidence={evidence} disabled={loading || locationChanged} />
-      <StormDeskImagery key={`imagery-${JSON.stringify(evidence)}`} evidence={evidence} />
       <section className="storm-desk-summary desk-changes">
         <div className="panel-heading">
           <div>
@@ -123,6 +120,7 @@ export function StormDeskPanel({ coordinates }: StormDeskPanelProps) {
         </ul>
         {error ? <p className="error-text">{error}</p> : null}
       </section>
+      <StormDeskImagery key={`imagery-${JSON.stringify(evidence)}`} evidence={evidence} />
 
       <section className="desk-guidance">
         <p className="source-note">Briefing point: {evidence.latitude.toFixed(3)}, {evidence.longitude.toFixed(3)}. Model run {formatRunTime(evidence.latest.runTime)}.</p>

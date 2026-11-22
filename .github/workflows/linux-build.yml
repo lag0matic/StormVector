@@ -71,7 +71,10 @@ jobs:
         run: npm ci
 
       - name: Check frontend
-        run: npm run lint
+        run: |
+          npm run lint
+          node scripts/check-briefing-cache.mjs
+          node scripts/check-spc-briefing.mjs
 
       - name: Prepare bundled decoder
         run: npm run prepare:decoders
