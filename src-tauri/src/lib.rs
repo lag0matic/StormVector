@@ -1,6 +1,4 @@
 use std::collections::hash_map::DefaultHasher;
-mod aifs;
-mod storm_desk_ai;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -2244,18 +2242,11 @@ pub fn run() {
             open_weather_source,
             check_hrrr_source_available,
             fetch_future_radar_render,
-            aifs::latest_aifs_run,
-            aifs::render_aifs_map,
-            aifs::fetch_aifs_point_evidence,
             fetch_storm_desk_evidence,
             fetch_storm_desk_probabilities,
             save_storm_desk_enriched,
             load_saved_storm_desk,
             list_storm_desk_history,
-            storm_desk_ai::configure_storm_desk_ai,
-            storm_desk_ai::storm_desk_ai_key_status,
-            storm_desk_ai::remove_storm_desk_ai_key,
-            storm_desk_ai::narrate_storm_desk,
             fetch_lightning_activity,
             play_alert_tone,
         ])

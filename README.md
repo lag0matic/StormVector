@@ -21,8 +21,7 @@ Current app version: `v1.5.2`
 - Saved home and favorite locations.
 - Audible nearby alerting for watches and warnings.
 - Light and dark map/workstation themes.
-- Forecast Briefing in its own window, with saved model runs and on-demand AI interpretation.
-- ECMWF AIFS precipitation, temperature, and sustained-wind maps through day 15.
+- Forecast Briefing in its own window, with saved NOAA model runs and comparisons.
 - GFS daily highs, lows, and precipitation totals through 15 days; NBM precipitation probabilities and snowfall guidance where available.
 
 ## Download
@@ -46,13 +45,11 @@ This project is coded with AI assistance, including OpenAI Codex. Human review, 
 
 ## Forecast Briefing
 
-Open Forecast Briefing for the selected map location. **Generate briefing** gathers HRRR, GFS, AIFS, and available NBM and SPC guidance without loading the maps first. Model guidance is reused for an hour per point across app restarts; active NWS alerts are checked separately on each request. The Model guidance and AIFS maps views are available without AI.
-
-Add your OpenAI API key in **Prefs > Forecast Briefing**; AI requests use your provider account and may incur charges. The key is stored in Windows Credential Manager or a Linux Secret Service keyring, not forecast files. Linux key saving requires an available, unlocked keyring.
+Open Forecast Briefing for the selected map location to load HRRR or GFS guidance and compare it with a prior run. Use **Load saved** to revisit a run without pulling fresh data. The standard Forecast view and alert overlays remain separate.
 
 GFS daily highs, lows, and liquid-equivalent totals cover complete UTC-day intervals, displayed in local time. They are not the NWS day/night forecast periods. NBM precipitation probabilities and amount percentiles are shown only for matching intervals. Snowfall uses separate native six-hour snowfall guidance, not a conversion of rain totals; probabilities and percentiles are not added into daily ranges. Long-range guidance is less reliable and model availability varies.
 
-AI interpretations cite the loaded evidence but are not independently verified forecasts. Official NWS warnings remain the authority for hazardous weather. See [release notes](CHANGELOG.md) and [model-data details](docs/storm-desk.md).
+Official NWS warnings remain the authority for hazardous weather. See [release notes](CHANGELOG.md) and [model-data details](docs/storm-desk.md).
 
 ## Data Sources And Attribution
 
@@ -63,7 +60,6 @@ StormVector uses public weather and map data from several services. Data availab
 - NOAA NEXRAD / Level III: radar-site products and storm-cell tracking products.
 - NOAA High-Resolution Rapid Refresh (HRRR): simulated reflectivity guidance for future radar mode.
 - NOAA GFS and National Blend of Models (NBM): point forecast guidance, precipitation probabilities, and snowfall outlooks.
-- [ECMWF Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data): AIFS Single forecast values and derived maps, CC BY 4.0.
 - NOAA Storm Prediction Center: severe-weather outlook products.
 - NOAA Weather Prediction Center: winter-weather outlook products.
 - NOAA AviationWeather: aviation-oriented weather data used by supporting services.

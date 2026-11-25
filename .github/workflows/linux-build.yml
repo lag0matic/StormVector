@@ -38,7 +38,6 @@ jobs:
             wget \
             file \
             libssl-dev \
-            libdbus-1-dev \
             libasound2-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
@@ -71,10 +70,7 @@ jobs:
         run: npm ci
 
       - name: Check frontend
-        run: |
-          npm run lint
-          node scripts/check-briefing-cache.mjs
-          node scripts/check-spc-briefing.mjs
+        run: npm run lint
 
       - name: Prepare bundled decoder
         run: npm run prepare:decoders

@@ -38,7 +38,6 @@ import type {
 } from './types/weather'
 import { distanceBetweenMiles } from './utils/geo'
 import { formatEtaDuration } from './utils/time'
-import { AiPreferences } from './components/AiPreferences'
 
 const primaryLayers = ['Radar', 'Satellite', 'Forecast'] as const
 const forecastOverlays = ['None', 'SPC Storm Risk', 'Winter'] as const
@@ -1529,7 +1528,6 @@ function App() {
                     </div>
                   </div>
 
-                  <AiPreferences />
                   <div className="popover-section">
                     <p className="card-label">Alert types</p>
                     <div className="chip-group">

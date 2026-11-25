@@ -24,13 +24,6 @@ sudo pacman -S --needed \
 
 ## 2. Install Rust
 
-Forecast Briefing can save an OpenAI key through your desktop Secret Service
-keyring. Run the app inside your normal desktop session with an unlocked
-provider such as GNOME Keyring, or KWallet with Secret Service enabled. A missing
-or locked provider produces an error in Prefs; the app never writes a plain-text
-key file. Building the credential integration also requires D-Bus development
-headers (`dbus` on Arch; `libdbus-1-dev` on Debian/Ubuntu).
-
 ```bash
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"

@@ -29,7 +29,7 @@ export type StormDeskHour = {
 }
 
 export type StormDeskRun = {
-  model: 'HRRR' | 'GFS' | 'NBM' | 'NBM-SNOW' | 'AIFS'
+  model: 'HRRR' | 'GFS' | 'NBM' | 'NBM-SNOW'
   runTime: string
   hours: StormDeskHour[]
 }
@@ -83,10 +83,6 @@ export function listStormDeskHistory(coordinates: [number, number], range: Storm
 }
 
 export function stormDeskSourceUrl(run: StormDeskRun, hour: StormDeskHour) {
-  if (run.model === 'AIFS') {
-    const cycle = new Date(run.runTime).toISOString().slice(0, 13).replace(/[-T]/g, '')
-    return `https://data.ecmwf.int/forecasts/${cycle.slice(0, 8)}/${cycle.slice(8)}z/aifs-single/0p25/oper/${cycle}0000-${hour.forecastHour}h-oper-fc.grib2`
-  }
   if (run.model === 'NBM-SNOW') return buildNbmUrl(new Date(run.runTime), hour.forecastHour).replaceAll('/qmd/', '/core/').replace('.qmd.', '.core.')
   if (run.model === 'NBM') return buildNbmUrl(new Date(run.runTime), hour.forecastHour)
   return buildSourceUrl(new Date(run.runTime), hour.forecastHour, run.model)

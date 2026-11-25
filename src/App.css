@@ -793,24 +793,12 @@
 .storm-desk-range select { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 8px; width: 100%; }
 .storm-desk-range label { display: grid; gap: 5px; }
 .storm-desk a { color: var(--text); text-underline-offset: 3px; }
-.storm-desk-narrative { font-size: 0.94rem; line-height: 1.55; overflow-wrap: anywhere; }
-.storm-desk-narrative p { margin: 0 0 12px; }
-.storm-desk-narrative p:last-child { margin-bottom: 0; }
 .storm-desk-sources { color: var(--muted); font-size: 0.78rem; line-height: 1.4; overflow-wrap: anywhere; }
 .weather-desk-window { height: 100dvh; overflow: auto; padding: 18px 24px 32px; scrollbar-gutter: stable; }
 .weather-desk-window > header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; max-width: 1440px; margin: 0 auto 12px; }
 .weather-desk-window > header span { color: var(--muted); font-size: 0.82rem; }
 .weather-desk-window h1 { font-size: 1.15rem; margin: 0; }
 .weather-desk-window h3 { font-size: 1rem; line-height: 1.35; }
-.desk-view-nav, .aifs-maps { max-width: 1440px; margin: 0 auto 16px; }
-.desk-view-nav, .aifs-controls, .aifs-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-.desk-view-nav button[aria-pressed="true"] { border-color: var(--accent); }
-.aifs-maps { display: grid; gap: 10px; }
-.aifs-maps .desk-image-frame { aspect-ratio: 2; max-height: 65vh; }
-.aifs-controls label { display: grid; gap: 4px; min-width: 0; font-size: 0.8rem; color: var(--muted); }
-.aifs-legend { margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.78rem; }
-.aifs-legend li { display: flex; align-items: center; gap: 5px; }
-.aifs-legend li span { width: 13px; height: 10px; border-radius: 2px; }
 .weather-desk-window .storm-desk,
 .weather-desk-window .storm-desk-empty { max-width: 1440px; margin: 0 auto; }
 .weather-desk-window .storm-desk { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
@@ -829,13 +817,8 @@
 .weather-desk-window .desk-primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .weather-desk-window .panel-heading { align-items: center; flex-wrap: wrap; gap: 10px; }
 .weather-desk-window .panel-heading h3 { margin: 0; }
-.desk-briefing { max-width: 1440px; margin: 0 auto 16px; padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
 .desk-changes { grid-column: 1; padding: 18px 16px; border-top: 1px solid var(--border); }
-.weather-desk-window .desk-settings { padding: 8px 0; border-block: 1px solid var(--border); font-size: 0.8rem; }
-.desk-settings summary,
 .storm-desk-sources summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
-.desk-settings label { margin: 12px 0 8px; }
-.weather-desk-window .storm-desk-narrative { max-width: 66ch; font-size: 0.94rem; line-height: 1.65; }
 .weather-desk-window .source-note { margin: 8px 0; line-height: 1.45; }
 .weather-desk-window .storm-desk > .source-note { grid-column: 1 / -1; padding: 0 16px; }
 .desk-guidance { grid-column: 1 / -1; padding: 20px 16px 8px; border-top: 1px solid var(--border); }

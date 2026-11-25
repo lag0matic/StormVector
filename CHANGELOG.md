@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- Removed in-app AI features, including generated forecasts, Ask Luna, AI-model maps, and OpenAI key settings. Standard forecasts, alerts, and saved NOAA guidance remain.
+
 ## 1.5.2
 
 - Replaced the desktop icon and browser favicon with the teal Frontal mark.
