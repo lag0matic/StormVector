@@ -179,11 +179,10 @@ function StormDeskHourCard({ hour, previous, probability }: { hour: StormDeskHou
         <ModelValue label="Low" value={formatNumber(hour.lowF ?? null, ' F')} change={delta(hour.lowF ?? null, previous?.lowF, ' F')} />
         <ModelValue label="Precip total" value={formatNumber(hour.precipitationInches, ' in', 2)} change={delta(hour.precipitationInches, previous?.precipitationInches, ' in', 2)} />
         {probability ? <div className="daily-probabilities">
-          <p className="eyebrow">NBM precipitation</p>
+          <p className="eyebrow" title="Precipitation amounts are water equivalent, not snowfall depth">NBM precipitation</p>
           <div><span>Chance of &gt;0.01 in</span><strong>{formatNumber(probability.precipProbabilityPercent ?? null, '%')}</strong></div>
           <div><span>Median amount</span><strong>{formatNumber(probability.precipP50Inches ?? null, ' in', 2)}</strong></div>
           <div><span title="10th–90th percentile: the middle 80% of modeled outcomes, including dry outcomes">Amount range (80%)</span><strong>{probability.precipP10Inches != null && probability.precipP90Inches != null && probability.precipP10Inches <= probability.precipP90Inches ? `${probability.precipP10Inches.toFixed(2)}–${probability.precipP90Inches.toFixed(2)} in` : 'Unavailable'}</strong></div>
-          <p className="source-note">Water-equivalent amounts, all precipitation types. Range includes dry outcomes.</p>
         </div> : <p className="source-note">NBM probability guidance not available for this day.</p>}
       </> : <>
       <ModelValue label="Temperature" value={formatNumber(hour.temperatureF, 'F')} change={delta(hour.temperatureF, previous?.temperatureF, 'F')} />
