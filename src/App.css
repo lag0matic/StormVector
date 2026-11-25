@@ -1019,95 +1019,119 @@
   min-width: 34px;
 }
 
-@media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: 1fr;
-    overflow: auto;
-  }
-
-  .map-panel {
-    min-height: 480px;
-  }
-
-  .map-stage,
-  .map-surface,
-  .map-canvas {
-    min-height: 460px;
-  }
-
-  .map-canvas {
-    height: 460px;
-  }
-
-  .map-floating-top-left,
-  .map-floating-top-right,
-  .map-floating-bottom-left,
-  .map-floating-bottom-center,
-  .map-floating-bottom-right {
-    position: static;
-    transform: none;
-    max-width: 100%;
-    width: 100%;
-    margin-top: 8px;
-  }
-
-  .map-overlay {
-    bottom: 12px;
-    right: 12px;
-  }
-
-  .compact-forecast-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hourly-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .topbar,
-  .timeline-panel {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .topbar h1 {
-    max-width: 100%;
-  }
-
-  .search-panel {
-    min-width: 0;
-    width: 100%;
-  }
+/* Workstation: the map owns the canvas; controls and readings sit in compact bands. */
+.startup-error { padding: 24px; max-width: 760px; margin: auto; overflow: auto; max-height: 100dvh; }
+.startup-error h1 { font-size: 1.3rem; }
+.startup-error details { margin-top: 16px; padding-block: 10px; border-top: 1px solid var(--border); }
+.startup-error pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-shell { padding: 0; gap: 0; }
+.topbar, .layer-bar { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 8px 16px; }
+.topbar { position: relative; z-index: 22; }
+.topbar-brand, .search-panel { display: flex; align-items: center; gap: 12px; }
+.topbar-brand small, .current-temp > span { color: var(--muted); font-size: .78rem; }
+.search-row { width: min(32vw, 350px); }
+.utility-button, .search-row button, .layer-bar button, .inline-action, .timeline-action, .chip {
+  display: inline-flex; justify-content: center; align-items: center; gap: 6px; border-radius: 5px;
 }
+.search-row button, .utility-button { min-height: 34px; }
+.search-panel .error-text { position: absolute; right: 0; top: 100%; background: var(--panel); padding: 4px 10px; margin: 0; }
+.utility-button[aria-expanded='true'] { border-color: var(--accent); }
+.layer-bar { padding-block: 6px; gap: 5px; }
+.layer-bar button { font-weight: 600; }
+.layer-bar .briefing-launch { margin-left: auto; }
+.popover-panel { gap: 0; padding: 4px 14px; }
+.popover-section { background: none; border-radius: 0; padding: 12px 0; }
+.popover-section + .popover-section { border-top: 1px solid var(--border); }
+.popover-section > .card-label, .popover-section .settings-row .card-label { color: var(--text); font-size: .9rem; }
+.popover-section p { margin-bottom: 0; }
+.workspace { gap: 0; }
+.map-panel { border: 0; padding: 0; border-radius: 0; }
+.map-stage { display: grid; grid-template-columns: minmax(165px, 1fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+.map-stage > .map-surface, .map-stage > .map-loading { grid-area: 2 / 1 / 3 / -1; }
+.map-canvas, .map-raster-stack { border-radius: 0; }
+.map-stage > .map-floating { position: static; width: auto; max-width: none; transform: none; min-width: 0; }
+.map-floating-top-left { grid-area: 1 / 1 / 2 / -1; }
+.map-stage .map-floating-top-right { grid-area: 2 / 1 / 3 / -1; align-self: start; justify-self: end; margin: 8px 48px 0 0; max-width: min(190px, 45%); }
+.map-surface .maplibregl-ctrl-top-right { top: 0; right: 0; }
+.map-floating-bottom-left { grid-area: 3 / 1; }
+.map-floating-bottom-center { grid-area: 3 / 2; }
+.map-toolbar, .track-bar, .timeline-panel { border: 0; border-radius: 0; }
+.map-toolbar { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.toolbar-main, .radar-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 6px 14px; }
+.control-tier { gap: 2px; }
+.control-tier .chip, .timeline-panel .chip { font-size: .78rem; padding: 4px 8px; }
+.segmented-group { gap: 3px; }
+.track-bar, .timeline-panel { border-top: 1px solid var(--border); height: 100%; padding: 8px 12px; }
+.track-bar { border-right: 1px solid var(--border); align-content: center; }
+.timeline-panel { grid-template-columns: minmax(0,1fr) auto; gap: 4px 8px; }
+.timeline-header { grid-column: 1; }
+.timeline-header h3 { font-size: .92rem; }
+.timeline-controls { grid-column: 1 / -1; justify-content: start; gap: 4px 12px; }
+.timeline-actions { grid-column: 2; grid-row: 1; }
+.timeline-scrubber { min-width: 0; }
+.timeline-slider { min-width: 0; }
+.timestamp-card { background: var(--panel); }
+.timestamp-card .inline-action { justify-self: start; font-size: .76rem; }
+.details-panel { padding: 0; gap: 0; border-left: 1px solid var(--border); background: var(--panel); }
+.details-panel .panel { padding: 14px 16px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.details-panel .eyebrow, .current-condition-card .card-label, .current-temp strong, .hourly-card strong, .forecast-card strong, .sun-row span { display: inline-flex; align-items: center; gap: 6px; }
+.hero-panel { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.hero-panel p, .hero-panel h2, .current-condition-card p, .hourly-card p { margin: 0; }
+.hero-panel h2 { margin-block: 3px; overflow-wrap: anywhere; }
+.hero-panel .eyebrow { color: var(--muted); }
+.current-temp { gap: 3px; min-width: 0; }
+.current-condition-card { padding: 6px 0; align-items: center; }
+.current-condition-card .card-label svg { width: 15px; height: 15px; }
+.current-conditions-heading h3, .hourly-strip h3 { font-size: 1rem; }
+.sun-row { justify-content: start; gap: 3px 12px; }
+.sun-row .badge, .current-conditions-heading .badge, .side-panel-heading > .badge { padding: 0; background: none; color: var(--muted); }
+.sun-row span svg { color: var(--briefing-sun); }
+.hourly-grid { gap: 0; border-block: 1px solid var(--border); }
+.hourly-card { background: transparent; border-radius: 0; padding: 8px; min-width: 0; align-content: start; overflow-wrap: anywhere; }
+.hourly-card + .hourly-card { border-left: 1px solid var(--border); }
+.hourly-card:first-child { padding-left: 0; }
+.forecast-grid { gap: 0; }
+.forecast-card { grid-template-columns: minmax(0,1fr) auto; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; }
+.forecast-card .compact-copy { grid-column: 1 / -1; }
+.forecast-card .card-label { color: var(--text); }
+.hazard-card { background: transparent; border-radius: 4px; }
+.hazard-card[data-level] { --severity: var(--briefing-cloud); border-inline-start: 3px solid var(--severity); background: color-mix(in srgb, var(--severity) 10%, var(--panel)); }
+.hazard-card[data-level='warning'] { --severity: var(--briefing-warning); }
+.hazard-card[data-level='watch'] { --severity: var(--briefing-watch); }
+.hazard-card[data-level] > div:first-child > strong { color: var(--severity); }
 
-@media (max-width: 720px) {
-  .app-shell {
-    padding: 14px;
-    overflow: auto;
-  }
-
-  .forecast-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .current-conditions-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-panel,
-  .map-toolbar,
-  .panel-heading {
-    flex-direction: column;
-  }
-
-  .timeline-controls,
-  .timeline-actions,
-  .timeline-scrubber {
-    width: 100%;
-  }
-
-  .current-temp {
-    justify-items: start;
-    text-align: left;
-  }
+@media (max-width: 1000px) {
+  .workspace { display: block; overflow: auto; }
+  .map-stage { flex: auto; height: auto; grid-template-rows: auto clamp(340px, 50dvh, 580px) auto; }
+  .details-panel { overflow: visible; border-left: 0; }
+  .details-panel .current-conditions-grid { grid-template-columns: repeat(2, minmax(0,1fr)); column-gap: 24px; }
+}
+@media (max-width: 640px) {
+  .topbar { align-items: stretch; flex-direction: column; gap: 5px; padding: 7px 10px; }
+  .topbar-brand { min-height: 32px; }
+  .search-panel, .utility-row { min-width: 0; }
+  .search-panel { position: static; }
+  .search-row { width: 100%; }
+  .utility-row { position: absolute; right: 10px; top: 7px; }
+  .topbar-brand small { display: none; }
+  .popover-wrap { position: static; }
+  .popover-panel { top: calc(100% + 1px); right: 0; width: min(340px, 100vw); max-height: 65dvh; }
+  .layer-bar { padding: 6px; }
+  .layer-bar button { padding: 5px 7px; gap: 4px; font-size: .8rem; }
+  .layer-bar .briefing-launch { margin-left: 0; }
+  .briefing-name-prefix { display: none; }
+  .radar-controls { display: grid; gap: 4px; }
+  .control-tier { grid-template-columns: 49px minmax(0,1fr); gap: 6px; align-items: center; }
+  .control-tier .chip { padding: 3px 6px; }
+  .map-stage { grid-template-columns: minmax(0,1fr); grid-template-rows: auto clamp(300px, 48dvh, 480px) auto auto; }
+  .map-stage .map-floating-top-right { margin-right: 42px; }
+  .map-floating-bottom-center { grid-area: 3 / 1; }
+  .map-floating-bottom-left { grid-area: 4 / 1; }
+  .map-toolbar, .track-bar, .timeline-panel { padding: 7px 10px; }
+  .details-panel .current-conditions-grid { grid-template-columns: 1fr; }
+  .map-overlay { bottom: 28px; right: 8px; }
+}
+@media (max-width: 380px) {
+  .utility-button span { display: none; }
+  .utility-button { width: 36px; height: 34px; padding: 0; }
 }

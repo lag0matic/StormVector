@@ -244,6 +244,7 @@ export async function fetchLocationWeather(
       coordinates,
     },
     current: {
+      isDaytime: currentHour?.isDaytime,
       temperature: formatTemperature(currentTempF, 'F'),
       summary:
         normalizeObservationSummary(currentObservation) ??
@@ -429,6 +430,7 @@ function buildNextHours(
 
     return {
       label: `+${index + 1}h`,
+      isDaytime: period.isDaytime,
       condition: period.shortForecast,
       temperature: formatTemperature(period.temperature, period.temperatureUnit),
       feelsLike: formatTemperature(
@@ -461,6 +463,7 @@ function buildDailyForecastCards(
 
   return chosenPeriods.map((period) => ({
     name: formatForecastDay(period.startTime),
+    isDaytime: period.isDaytime,
     temperature: formatTemperature(period.temperature, period.temperatureUnit),
     summary: period.shortForecast,
   }))

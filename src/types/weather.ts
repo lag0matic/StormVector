@@ -1,10 +1,12 @@
 export type ForecastPeriod = {
+  isDaytime?: boolean
   name: string
   temperature: string
   summary: string
 }
 
 export type HourlyForecastPeriod = {
+  isDaytime?: boolean
   label: string
   condition: string
   temperature: string
@@ -85,6 +87,7 @@ export type WinterOutlookFeature = {
 }
 
 export type HazardSelection = {
+  alertType?: AlertFeature['alertType']
   source: 'alerts' | 'spc' | 'winter' | 'lsr'
   title: string
   subtitle: string
@@ -118,6 +121,7 @@ export type LocationWeather = {
     coordinates: [number, number]
   }
   current: {
+    isDaytime?: boolean
     temperature: string
     summary: string
     feelsLike: string

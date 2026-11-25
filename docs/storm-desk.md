@@ -2,9 +2,23 @@
 
 ## Model Guidance
 
-Open Forecast Briefing from the map toolbar, choose a forecast range, and
-load a current or saved run. The window shows conventional NOAA guidance
-for the selected point without an account or AI provider.
+Open Forecast Briefing from the map toolbar. The selected range loads
+automatically for the pin. The 24-hour view aligns the NWS hourly forecast
+with conventional GFS, Euro IFS, and HRRR precipitation types via Open-Meteo.
+Model precipitation sums for the hour ending at a timestamp are aligned to
+the NWS period that starts an hour earlier. Empty values are not dry hours.
+Days 1–3 and 4–7 use NWS periods; extended guidance covers days 8–15 from
+GFS and Euro IFS. Seasonal shows the latest lead-one NOAA CPC outlook and
+the published issue dates. Active alerts come directly from NWS. No AI
+provider or account is used.
+
+Run `node scripts/check-forecast-briefing.mjs` for the fixture checks or add
+`--live` to check the public endpoints at the Richmond, Indiana sample pin.
+
+## Native Model Tools
+
+The following documents the retained native model services and saved run
+formats; the new Forecast Briefing does not require users to select a model.
 
 ### Native Snowfall Outlook
 

@@ -2522,6 +2522,7 @@ function buildAlertSelectionFromMapFeatures(
   return {
     source: 'alerts',
     title: String(feature.properties?.event ?? 'Active alert'),
+    alertType: normalizeAlertType(String(feature.properties?.alertType ?? '')),
     subtitle: String(feature.properties?.headline ?? 'NWS active alert'),
     summary: String(
       feature.properties?.areaDescription ?? 'Area description unavailable.',

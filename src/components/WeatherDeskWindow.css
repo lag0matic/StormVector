@@ -1,0 +1,70 @@
+
+.briefing-shell { width: min(100%, 1040px); margin: 0 auto; }
+.briefing-masthead { padding: 5px 0 15px; border-bottom: 1px solid var(--border); }
+.briefing-ranges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.briefing-ranges button { font-weight: 600; background: transparent; overflow-wrap: anywhere; }
+.briefing-ranges button[aria-pressed='true'] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
+.briefing-content { min-width: 0; }
+.briefing-place { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 0 8px; }
+.briefing-place h2 { font-size: 1.15rem; line-height: 1.3; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.weather-desk-window .briefing-refresh { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; flex: none; }
+.briefing-alerts { display: grid; gap: 6px; padding-block: 5px; }
+.briefing-alert {
+  --alert-color: var(--briefing-cloud);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px 9px;
+  padding: 8px 10px; border-inline-start: 3px solid var(--alert-color); border-radius: 4px;
+  background: color-mix(in srgb, var(--alert-color) 12%, var(--panel));
+}
+.briefing-alert[data-level='watch'] { --alert-color: var(--briefing-watch); }
+.briefing-alert[data-level='warning'] { --alert-color: var(--briefing-warning); }
+.briefing-alert svg, .briefing-alert strong { color: var(--alert-color); }
+.briefing-alert small { color: var(--text); }
+.briefing-overview { display: grid; gap: 4px; padding-block: 11px 15px; }
+.briefing-overview h3, .briefing-overview p, .briefing-band-heading h3 { margin: 0; }
+.briefing-now { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; }
+.briefing-now:empty { display: none; }
+.briefing-now > strong { font-size: 1.7rem; line-height: 1.1; }
+.briefing-now small, .briefing-condition { display: inline-flex; align-items: center; gap: 6px; }
+.briefing-now small { color: var(--muted); }
+.briefing-band { border-top: 1px solid var(--border); }
+.briefing-band-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-block: 10px; }
+.briefing-band-heading span, .briefing-empty, .briefing-sources { color: var(--muted); font-size: 0.84rem; }
+.briefing-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+.briefing-table { width: 100%; min-width: 630px; border-collapse: collapse; font-size: 0.85rem; }
+.briefing-table th, .briefing-table td { padding: 8px 11px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.briefing-table thead th { font-size: 0.78rem; color: var(--muted); background: var(--panel); }
+.briefing-table tbody tr:last-child > * { border-bottom: 0; }
+.briefing-table tbody tr[data-new-day='true']:not(:first-child) > * { border-top: 2px solid var(--border); }
+.briefing-table tbody th { white-space: nowrap; }
+.briefing-table small, .briefing-day-label small, .briefing-day-numbers small, .briefing-season small { display: block; color: var(--muted); font-size: 0.76rem; font-weight: 400; }
+.briefing-condition[data-phase='rain'] { color: var(--briefing-rain); }
+.briefing-condition[data-phase='snow'] { color: var(--briefing-snow); }
+.briefing-condition[data-phase='mix'] { color: var(--briefing-ice); }
+.briefing-condition[data-phase='dry'] { color: var(--muted); }
+.briefing-extended-table { min-width: 385px; }
+.briefing-mobile-temp { display: none; }
+.briefing-days { margin: 0; padding: 0; list-style: none; }
+.briefing-days li { display: grid; grid-template-columns: minmax(90px, 130px) 30px minmax(0, 1fr) 64px; align-items: start; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); }
+.briefing-day-weather p { margin: 3px 0 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+.briefing-day-numbers { text-align: right; white-space: nowrap; }
+.briefing-day-numbers strong { font-size: 1.05rem; }
+.briefing-season { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.briefing-season > div { border-top: 1px solid var(--border); padding-block: 12px; }
+.briefing-season dt { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.briefing-season dd { margin: 5px 0 0; }
+.briefing-sources { display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid var(--border); margin-top: 17px; padding-top: 9px; }
+.briefing-sources a { color: var(--text); text-underline-offset: 3px; }
+
+@media (max-width: 520px) {
+  .briefing-ranges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .briefing-ranges button { justify-self: stretch; padding-inline: 5px; }
+  .briefing-hourly-table { table-layout: fixed; }
+  .briefing-hourly-table th:first-child { width: 104px; }
+  .briefing-hourly-table th:nth-child(2) { width: 178px; }
+  .briefing-hourly-table .briefing-desktop-temp { display: none; }
+  .briefing-mobile-temp { display: block; width: max-content; margin-inline-start: 27px; }
+  .briefing-days li { grid-template-columns: 29px minmax(0, 1fr) 56px; gap: 6px 8px; }
+  .briefing-day-label { grid-column: 1 / -1; }
+  .briefing-day-label small { display: inline; margin-inline-start: 7px; }
+  .briefing-season { grid-template-columns: 1fr; gap: 0; }
+}

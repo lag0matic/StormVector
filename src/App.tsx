@@ -9,6 +9,10 @@ import {
   useState,
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { BookOpen, Bookmark, CloudSun, Droplets, Gauge, MapPin, Moon, Pause, Play, Radar, RefreshCw, Satellite, Search, Settings2, Sun, Sunrise, Sunset, Thermometer, TriangleAlert, Wind } from 'lucide-react'
+import { WeatherIcon } from './components/WeatherIcon'
+import { TemperatureReading } from './components/ForecastTemperature'
+import { conditionFor } from './services/forecastBriefing'
 import './App.css'
 import { useAlertPolygons } from './hooks/useAlertPolygons'
 import { useFutureRadarTimeline } from './hooks/useFutureRadarTimeline'
@@ -40,6 +44,14 @@ import { distanceBetweenMiles } from './utils/geo'
 import { formatEtaDuration } from './utils/time'
 
 const primaryLayers = ['Radar', 'Satellite', 'Forecast'] as const
+const layerIcons = { Radar, Satellite, Forecast: CloudSun }
+
+function ConditionSymbol({ text, daytime = true, size = 20 }: { text: string; daytime?: boolean; size?: number }) {
+  if (!/rain|snow|drizzle|sleet|pellet|flurr|thunder|shower|fog|mist|partly|mostly|clear|sun|cloud|overcast|fair/i.test(text)) {
+    return /wind|breez/i.test(text) ? <Wind size={size} aria-hidden="true" /> : null
+  }
+  return <WeatherIcon condition={conditionFor(text.replace(/\bfair\b/i, 'clear'), daytime)} night={!daytime} size={size} />
+}
 const forecastOverlays = ['None', 'SPC Storm Risk', 'Winter'] as const
 const spcDays = [
   { id: 1, label: 'Day 1' },
@@ -70,7 +82,7 @@ const playbackFrames = ['Live', '-15m', '-30m', '-45m', '-60m', '-90m', '-120m']
 const stormTrackSpeedOptions = [20, 30, 40, 50, 60] as const
 const defaultCoordinates: [number, number] = [-86.1581, 39.7684]
 const defaultLocationLabel = 'Indianapolis, IN'
-const appVersion = 'v1.5.2'
+const appVersion = 'v1.5.3'
 const regionalRadarProducts = [
   { id: 'base', label: 'Base Reflectivity' },
   { id: 'composite', label: 'Composite Reflectivity' },
@@ -350,6 +362,17 @@ function App() {
   const [searching, setSearching] = useState(false)
   const [showLocationMenu, setShowLocationMenu] = useState(false)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  useEffect(() => {
+    if (!showLocationMenu && !showSettingsMenu) return
+    function dismiss(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      document.querySelector<HTMLButtonElement>('.utility-button[aria-expanded="true"]')?.focus()
+      setShowLocationMenu(false)
+      setShowSettingsMenu(false)
+    }
+    window.addEventListener('keydown', dismiss)
+    return () => window.removeEventListener('keydown', dismiss)
+  }, [showLocationMenu, showSettingsMenu])
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>('forecast')
   const [trackToolEnabled, setTrackToolEnabled] = useState(false)
   const [stormTrackOrigin, setStormTrackOrigin] = useState<[number, number] | null>(null)
@@ -910,10 +933,7 @@ function App() {
     () => stackedHazardAlerts.slice(1),
     [stackedHazardAlerts],
   )
-  const selectedHazardChipStyle = useMemo(
-    () => buildAlertChipStyle(selectedHazard?.accentColor),
-    [selectedHazard],
-  )
+  const playbackRunning = activeLayer === 'Satellite' ? satellitePlaybackRunning : radarView === 'regional' ? regionalPlaybackRunning : radarView === 'future' ? futurePlaybackRunning : localPlaybackRunning
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode
@@ -1369,8 +1389,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="topbar-brand">
-          <p className="eyebrow">StormVector</p>
-          <h1>Weather workstation</h1>
+          <h1>StormVector</h1><small>{appVersion}</small>
         </div>
         <div className="search-panel">
           <form className="search-row" onSubmit={handleSearchSubmit}>
@@ -1381,8 +1400,8 @@ function App() {
               onChange={(event) => setSearchText(event.target.value)}
               placeholder="Search city, state, or address"
             />
-            <button type="submit" disabled={searching}>
-              {searching ? 'Searching...' : 'Go'}
+            <button type="submit" disabled={searching} aria-label={searching ? 'Searching' : 'Search location'} title="Search location">
+              <Search size={17} aria-hidden="true" />
             </button>
           </form>
           <div className="utility-row">
@@ -1391,12 +1410,13 @@ function App() {
                 type="button"
                 className="utility-button"
                 aria-expanded={showLocationMenu}
+                title="Places" aria-label="Places"
                 onClick={() => {
                   setShowLocationMenu((current) => !current)
                   setShowSettingsMenu(false)
                 }}
               >
-                Places
+                <Bookmark size={16} aria-hidden="true" /><span>Places</span>
               </button>
               {showLocationMenu ? (
                 <div className="popover-panel">
@@ -1503,12 +1523,13 @@ function App() {
                 type="button"
                 className="utility-button"
                 aria-expanded={showSettingsMenu}
+                title="Preferences" aria-label="Preferences"
                 onClick={() => {
                   setShowSettingsMenu((current) => !current)
                   setShowLocationMenu(false)
                 }}
               >
-                Prefs
+                <Settings2 size={16} aria-hidden="true" /><span>Preferences</span>
               </button>
               {showSettingsMenu ? (
                 <div className="popover-panel">
@@ -1520,9 +1541,10 @@ function App() {
                           key={mode}
                           type="button"
                           className={themeMode === mode ? 'chip active' : 'chip'}
+                          aria-pressed={themeMode === mode}
                           onClick={() => setThemeMode(mode)}
                         >
-                          {mode === 'light' ? 'Light' : 'Dark'}
+                          {mode === 'light' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />} {mode === 'light' ? 'Light' : 'Dark'}
                         </button>
                       ))}
                     </div>
@@ -1759,7 +1781,9 @@ function App() {
       </header>
 
       <nav className="layer-bar" aria-label="Primary layers">
-        {primaryLayers.map((layer) => (
+        {primaryLayers.map((layer) => {
+          const Icon = layerIcons[layer]
+          return (
           <button
             key={layer}
             type="button"
@@ -1767,13 +1791,13 @@ function App() {
             onClick={() => setActiveLayer(layer)}
             aria-pressed={activeLayer === layer}
           >
-            {layer}
+            <Icon size={17} aria-hidden="true" />{layer}
           </button>
-        ))}
-        <button type="button" onClick={() => {
+        )})}
+        <button type="button" className="briefing-launch" aria-label="Forecast Briefing" onClick={() => {
           invoke('open_storm_desk', { longitude: selectedCoordinates[0], latitude: selectedCoordinates[1], theme: themeMode })
             .catch((cause) => setSearchError(String(cause)))
-        }}>Forecast Briefing</button>
+        }}><BookOpen size={17} aria-hidden="true" /><span><span className="briefing-name-prefix">Forecast </span>Briefing</span></button>
       </nav>
 
       <main className="workspace">
@@ -2055,7 +2079,7 @@ function App() {
                 className="inline-action"
                 onClick={() => setMapRefreshKey((current) => current + 1)}
               >
-                Refresh map
+                <RefreshCw size={14} aria-hidden="true" /> Refresh map
               </button>
             </div>
             </div>
@@ -2064,21 +2088,14 @@ function App() {
             <div className="track-bar map-glass">
             <div className="track-bar-main">
               <div className="track-bar-title">
-                <p className="card-label">Storm Track</p>
-                <strong>
+                <p className="card-label">Storm track</p>
+                {(trackToolEnabled || stormTrackOrigin) && <strong>
                   {stormTrackOrigin && stormTrackEnd
                     ? `${Math.round(stormTrackDistanceMiles)} mi in ${formatEtaDuration(stormTrackTravelMinutes)}`
                     : stormTrackOrigin
                       ? 'Set the end of motion on the map'
                       : 'Place a storm point to begin'}
-                </strong>
-                <span className="source-note">
-                  {trackToolEnabled
-                    ? stormTrackOrigin
-                      ? 'Drag or click from the storm point to set motion.'
-                      : 'Click the map to place the storm location.'
-                    : 'Turn on Track ETA to place a storm point and estimate arrival times.'}
-                </span>
+                </strong>}
                 {stormTrackHeading ? (
                   <div className="track-metadata">
                     <span className="badge calm">
@@ -2095,6 +2112,7 @@ function App() {
                 <button
                   type="button"
                   className={trackToolEnabled ? 'chip active' : 'chip'}
+                  aria-pressed={trackToolEnabled}
                   onClick={() => setTrackToolEnabled((current) => !current)}
                 >
                   {trackToolEnabled ? 'Track ETA On' : 'Track ETA'}
@@ -2216,6 +2234,8 @@ function App() {
                 <button
                   type="button"
                   className="timeline-action"
+                  aria-label={playbackRunning ? 'Pause playback' : 'Play loop'}
+                  title={playbackRunning ? 'Pause playback' : 'Play loop'}
                   disabled={
                     activeLayer === 'Satellite'
                       ? activeSatelliteFrames.length < 2
@@ -2269,21 +2289,7 @@ function App() {
                     setLocalPlaybackRunning((current) => !current)
                   }}
                 >
-                  {activeLayer === 'Satellite'
-                    ? satellitePlaybackRunning
-                      ? 'Pause'
-                      : 'Play'
-                    : radarView === 'regional'
-                      ? regionalPlaybackRunning
-                        ? 'Pause'
-                        : 'Play'
-                      : radarView === 'future'
-                        ? futurePlaybackRunning
-                          ? 'Pause'
-                          : 'Play'
-                      : localPlaybackRunning
-                        ? 'Pause'
-                        : 'Play'}
+                  {playbackRunning ? <Pause size={16} /> : <Play size={16} />}
                 </button>
                 <button
                   type="button"
@@ -2396,16 +2402,13 @@ function App() {
               </footer>
             </div>
 
-            <div className="map-floating map-floating-bottom-right">
-              <div className="version-pill map-glass">{appVersion}</div>
-            </div>
           </div>
         </section>
 
         <aside className="details-panel">
           <section className="panel hero-panel">
             <div>
-              <p className="eyebrow">Point</p>
+              <p className="eyebrow"><MapPin size={14} aria-hidden="true" /> {source === 'live' ? 'Selected point' : 'Sample conditions'}</p>
               <h2>{weather.location.name}</h2>
               <p className="muted">
                 {weather.location.office}
@@ -2421,7 +2424,7 @@ function App() {
               ) : null}
             </div>
             <div className="current-temp">
-              <strong>{weather.current.temperature}</strong>
+              <strong><ConditionSymbol text={weather.current.summary} daytime={weather.current.isDaytime} size={28} /><TemperatureReading text={weather.current.temperature} /></strong>
               <span>{weather.current.summary}</span>
             </div>
           </section>
@@ -2429,42 +2432,41 @@ function App() {
           <section className="panel current-conditions-panel">
             <div className="panel-heading current-conditions-heading">
               <div>
-                <p className="eyebrow">Current Conditions</p>
-                <h3>Live at Selected Point</h3>
+                <h3>Current conditions</h3>
               </div>
-              <span className="badge">{weather.current.lastUpdated}</span>
+              <span className="badge">{source === 'live' ? weather.current.lastUpdated : 'Sample data'}</span>
             </div>
             <div className="current-conditions-grid">
               <article className="current-condition-card">
-                <p className="card-label">Feels Like</p>
-                <strong>{weather.current.feelsLike}</strong>
+                <p className="card-label"><Thermometer />Feels like</p>
+                <strong><TemperatureReading text={weather.current.feelsLike} /></strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Dewpoint</p>
-                <strong>{weather.current.dewpoint}</strong>
+                <p className="card-label"><Droplets />Dew point</p>
+                <strong><TemperatureReading text={weather.current.dewpoint} /></strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Humidity</p>
+                <p className="card-label"><Gauge />Humidity</p>
                 <strong>{weather.current.humidity}</strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Wind</p>
+                <p className="card-label"><Wind />Wind</p>
                 <strong>{weather.current.wind}</strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Sky</p>
+                <p className="card-label"><CloudSun />Sky</p>
                 <strong>{weather.current.sky}</strong>
               </article>
               <article className="current-condition-card">
-                <p className="card-label">Precip Chance</p>
+                <p className="card-label"><Droplets />Precip. chance</p>
                 <strong>{weather.current.precip}</strong>
               </article>
             </div>
             <div className="sun-row">
-              <span className="badge calm">Sunrise {weather.sun.sunrise}</span>
+              <span><Sunrise size={16} aria-hidden="true" /> Sunrise {weather.sun.sunrise}</span>
               <span className="badge calm">UV {weather.outdoor.uvIndex} ({weather.outdoor.uvRisk})</span>
               <span className="badge calm">AQI {weather.outdoor.airQuality} ({weather.outdoor.airQualityRisk})</span>
-              <span className="badge calm">Sunset {weather.sun.sunset}</span>
+              <span><Sunset size={16} aria-hidden="true" /> Sunset {weather.sun.sunset}</span>
             </div>
             <p className="source-note outdoor-source">
               Today max UV {weather.outdoor.uvMax} / {weather.outdoor.airQualityDetails} / {weather.outdoor.sourceLabel}
@@ -2477,6 +2479,7 @@ function App() {
                 <button
                   type="button"
                   className={sidePanelTab === 'forecast' ? 'chip active' : 'chip'}
+                  aria-pressed={sidePanelTab === 'forecast'}
                   onClick={() => setSidePanelTab('forecast')}
                 >
                   Forecast
@@ -2484,10 +2487,10 @@ function App() {
                 <button
                   type="button"
                   className={sidePanelTab === 'hazards' ? 'chip active' : 'chip'}
+                  aria-pressed={sidePanelTab === 'hazards'}
                   onClick={() => setSidePanelTab('hazards')}
-                  style={sidePanelTab === 'hazards' ? selectedHazardChipStyle : undefined}
                 >
-                  Hazards
+                  <TriangleAlert size={15} aria-hidden="true" /> Hazards
                 </button>
                 {extraStackedHazardAlerts.map((alert, index) => (
                   <button
@@ -2516,7 +2519,7 @@ function App() {
                   </button>
                 ))}
               </div>
-              <span className={sidePanelTab === 'hazards' ? 'badge danger' : 'badge'}>
+              <span className="badge">
                 {sidePanelTab === 'forecast'
                   ? source === 'live'
                     ? 'Live NWS'
@@ -2531,18 +2534,17 @@ function App() {
                   <section className="hourly-strip">
                     <div className="panel-heading hourly-strip-heading">
                       <div>
-                        <p className="eyebrow">Next 3 Hours</p>
-                        <h3>Short-Term Outlook</h3>
+                        <h3>Next 3 hours</h3>
                       </div>
                     </div>
                     <div className="hourly-grid">
                       {weather.nextHours.map((period) => (
                         <article className="hourly-card" key={period.label}>
                           <p className="card-label">{period.label}</p>
-                          <strong>{period.temperature}</strong>
+                          <strong><ConditionSymbol text={period.condition} daytime={period.isDaytime} /><TemperatureReading text={period.temperature} /></strong>
                           <p className="compact-copy">{period.condition}</p>
                           <div className="hourly-detail-list">
-                            <span>Feels {period.feelsLike}</span>
+                            <span>Feels <TemperatureReading text={period.feelsLike} /></span>
                             <span>{period.wind}</span>
                             <span>{period.precip}</span>
                             {period.secondary ? <span>{period.secondary}</span> : null}
@@ -2557,7 +2559,7 @@ function App() {
                   {weather.forecast.map((period) => (
                     <article className="forecast-card" key={period.name}>
                       <p className="card-label">{period.name}</p>
-                      <strong>{period.temperature}</strong>
+                      <strong><ConditionSymbol text={period.summary} daytime={period.isDaytime} /><TemperatureReading text={period.temperature} /></strong>
                       <p className="compact-copy">{period.summary}</p>
                     </article>
                   ))}
@@ -2569,7 +2571,7 @@ function App() {
 
                 <div className="stack">
                 {selectedHazard ? (
-                  <article className="hazard-card">
+                  <article className="hazard-card" data-level={selectedHazard.alertType}>
                     <div>
                       <p className="card-label">
                           {selectedHazard.source === 'alerts'
@@ -2639,6 +2641,7 @@ function App() {
                         type="button"
                         className="hazard-card hazard-button"
                         onClick={() => setSelectedHazard(buildAlertSelection(alert))}
+                        data-level={alert.alertType}
                       >
                         <div>
                           <p className="card-label">
@@ -2927,6 +2930,7 @@ function buildAlertSelection(
   return {
     source: 'alerts',
     title: alert.event,
+    alertType: alert.alertType,
     subtitle: alert.headline,
     summary: alert.areaDescription,
     accentColor: alert.fillColor,

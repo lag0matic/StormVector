@@ -1,0 +1,46 @@
+:root {
+  --briefing-sun: #986008;
+  --briefing-cloud: #596c77;
+  --briefing-rain: #17658c;
+  --briefing-snow: #426ca9;
+  --briefing-ice: #7550a1;
+  --briefing-glaze: #70439a;
+  --briefing-sleet: #216666;
+  --briefing-storm: #a24729;
+  --briefing-watch: #915400;
+  --briefing-warning: #a72f3e;
+}
+
+:root[data-theme='dark'] {
+  --briefing-sun: #f2c366;
+  --briefing-cloud: #aebdc3;
+  --briefing-rain: #81c7e5;
+  --briefing-snow: #a6bffc;
+  --briefing-ice: #d7b3f8;
+  --briefing-glaze: #dab8ff;
+  --briefing-sleet: #a5e0dd;
+  --briefing-storm: #fca180;
+  --briefing-watch: #ffd078;
+  --briefing-warning: #ff9aa4;
+}
+
+.briefing-weather-icon { flex: none; color: var(--briefing-cloud); }
+.briefing-weather-icon[data-weather='sun'], .briefing-weather-icon[data-weather='partly'] { color: var(--briefing-sun); }
+.briefing-weather-icon[data-weather='rain'] { color: var(--briefing-rain); }
+.briefing-weather-icon[data-weather='snow'] { color: var(--briefing-snow); }
+.briefing-weather-icon[data-weather='mix'] { color: var(--briefing-ice); }
+.briefing-weather-icon[data-weather='freezing-rain'], .briefing-condition[data-phase='freezing-rain'] { color: var(--briefing-glaze); }
+.briefing-weather-icon[data-weather='sleet'], .briefing-condition[data-phase='sleet'] { color: var(--briefing-sleet); }
+.briefing-weather-icon[data-weather='storm'] { color: var(--briefing-storm); }
+
+.forecast-temperature { color: var(--temp-light); white-space: nowrap; }
+:root[data-theme='dark'] .forecast-temperature { color: var(--temp-dark); }
+.forecast-temperature[data-band='subzero'] { --temp-light: #82399b; --temp-dark: #e6a7ff; }
+.forecast-temperature[data-band='cold'] { --temp-light: #414f9c; --temp-dark: #a8baff; }
+.forecast-temperature[data-band='blue'] { --temp-light: #196397; --temp-dark: #86cdf9; }
+.forecast-temperature[data-band='teal'] { --temp-light: #17695e; --temp-dark: #7bd8cb; }
+.forecast-temperature[data-band='green'] { --temp-light: #3c6b36; --temp-dark: #a7d99b; }
+.forecast-temperature[data-band='neutral'] { --temp-light: #29292b; --temp-dark: #f2f2f2; }
+.forecast-temperature[data-band='gold'] { --temp-light: #806100; --temp-dark: #f4d36c; }
+.forecast-temperature[data-band='orange'] { --temp-light: #934b14; --temp-dark: #ffac71; }
+.forecast-temperature[data-band='hot'] { --temp-light: #a52d39; --temp-dark: #ff8c91; }

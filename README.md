@@ -2,7 +2,7 @@
 
 StormVector is a desktop-first U.S. weather workstation built for practical situational awareness: live radar, warnings, storm reports, forecast overlays, and point weather in one map-centered app.
 
-Current app version: `v1.5.2`
+Current app version: `v1.5.3`
 
 ## Highlights
 
@@ -21,19 +21,18 @@ Current app version: `v1.5.2`
 - Saved home and favorite locations.
 - Audible nearby alerting for watches and warnings.
 - Light and dark map/workstation themes.
-- Forecast Briefing in its own window, with saved NOAA model runs and comparisons.
-- GFS daily highs, lows, and precipitation totals through 15 days; NBM precipitation probabilities and snowfall guidance where available.
+- Forecast Briefing with hourly precipitation-type comparisons, NWS day and night forecasts, extended model guidance, and NOAA's seasonal outlook.
 
 ## Download
 
 Download published packages from the latest GitHub release. New Linux builds are also available in the Actions artifacts for the corresponding main-branch build.
 
-Version `1.5.2` package names:
+Version `1.5.3` package names:
 
-- Windows: `StormVector_1.5.2_x64-setup.exe`
-- Linux AppImage: `stormvector-appimage-1.5.2.zip`
-- Linux Debian / Ubuntu: `stormvector-deb-1.5.2.zip`
-- Linux Fedora / RHEL / openSUSE: `stormvector-rpm-1.5.2.zip`
+- Windows: `StormVector_1.5.3_x64-setup.exe`
+- Linux AppImage: `stormvector-appimage-1.5.3.zip`
+- Linux Debian / Ubuntu: `stormvector-deb-1.5.3.zip`
+- Linux Fedora / RHEL / openSUSE: `stormvector-rpm-1.5.3.zip`
 
 The Linux downloads are packaged apps. You should not need Node.js, Rust, Tauri, or other development prerequisites unless you are building StormVector from source.
 
@@ -45,9 +44,7 @@ This project is coded with AI assistance, including OpenAI Codex. Human review, 
 
 ## Forecast Briefing
 
-Open Forecast Briefing for the selected map location to load HRRR or GFS guidance and compare it with a prior run. Use **Load saved** to revisit a run without pulling fresh data. The standard Forecast view and alert overlays remain separate.
-
-GFS daily highs, lows, and liquid-equivalent totals cover complete UTC-day intervals, displayed in local time. They are not the NWS day/night forecast periods. NBM precipitation probabilities and amount percentiles are shown only for matching intervals. Snowfall uses separate native six-hour snowfall guidance, not a conversion of rain totals; probabilities and percentiles are not added into daily ranges. Long-range guidance is less reliable and model availability varies.
+Open Forecast Briefing for the selected map location and choose **24 hours**, **Days 1–3**, **Days 4–7**, **Extended range**, or **Seasonal**. Sources load automatically. The hourly view shows official NWS conditions next to GFS, Euro IFS, and HRRR precipitation types. Extended guidance compares days 8–15 from GFS and Euro IFS, and the seasonal view shows NOAA's latest three-month outlook.
 
 Official NWS warnings remain the authority for hazardous weather. See [release notes](CHANGELOG.md) and [model-data details](docs/storm-desk.md).
 
@@ -64,7 +61,7 @@ StormVector uses public weather and map data from several services. Data availab
 - NOAA Weather Prediction Center: winter-weather outlook products.
 - NOAA AviationWeather: aviation-oriented weather data used by supporting services.
 - Iowa State Mesonet: local storm report feeds and related weather-product access.
-- Open-Meteo: UV index and air quality forecast data.
+- [Open-Meteo](https://open-meteo.com/): UV index, air quality, and point model forecasts for hourly and extended guidance.
 - OpenStreetMap contributors: light basemap tiles.
 - CARTO: dark basemap tiles.
 - EOAPI / TiTiler-compatible raster rendering: HRRR GRIB-to-map-image rendering for future radar mode.

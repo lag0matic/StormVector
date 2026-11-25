@@ -49,21 +49,25 @@ fn allowed_weather_source(url: &str) -> bool {
         && parsed.port().is_none()
         && parsed.query().is_none()
         && parsed.fragment().is_none()
-        && matches!(
-            parsed.host_str(),
+        && match parsed.host_str() {
             Some(
                 "noaa-hrrr-bdp-pds.s3.amazonaws.com"
-                    | "noaa-gfs-bdp-pds.s3.amazonaws.com"
-                    | "noaa-nbm-grib2-pds.s3.amazonaws.com"
-            )
-        )
-        && parsed.path().ends_with(".idx")
+                | "noaa-gfs-bdp-pds.s3.amazonaws.com"
+                | "noaa-nbm-grib2-pds.s3.amazonaws.com",
+            ) => parsed.path().ends_with(".idx"),
+            Some("www.weather.gov") => parsed.path() == "/documentation/services-web-api",
+            Some("open-meteo.com") => parsed.path() == "/en/docs",
+            Some("www.cpc.ncep.noaa.gov") => {
+                parsed.path() == "/products/GIS/GIS_DATA/us_tempprcpfcst/seasonal.php"
+            }
+            _ => false,
+        }
 }
 
 #[tauri::command]
 fn open_weather_source(app: tauri::AppHandle, url: String) -> Result<(), String> {
     if !allowed_weather_source(&url) {
-        return Err("Source link is not an allowed NOAA inventory.".into());
+        return Err("Source link is not an allowed weather source.".into());
     }
     app.opener()
         .open_url(url, None::<&str>)
